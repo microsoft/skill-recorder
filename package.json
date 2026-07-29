@@ -48,7 +48,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.2",
-    "adm-zip": "^0.5.18",
+    "adm-zip": "^0.6.0",
     "electron": "^43.0.0",
     "electron-builder": "^26.15.6",
     "typescript": "^7.0.0",

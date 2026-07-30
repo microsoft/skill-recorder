@@ -247,7 +247,7 @@ build_source_install() {
   local source_directory="$1"
   local archive="$WORK_DIR/skill-recorder-$COMMIT.tar.gz"
   info "Downloading Skill Recorder source commit $COMMIT."
-  download "https://codeload.github.com/adilei/skill-recorder/tar.gz/$COMMIT" "$archive"
+  download "https://codeload.github.com/microsoft/skill-recorder/tar.gz/$COMMIT" "$archive"
 
   local top_directory
   top_directory="$(tar -tzf "$archive" | awk -F/ 'NR == 1 { first = $1 } END { print first }')"

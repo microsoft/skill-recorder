@@ -323,7 +323,7 @@ test("source and release instructions remain compliance-preserving", async () =>
   assert.match(windowsInstaller, /\^\[0-9a-fA-F\]\{40\}\$/);
   assert.match(
     windowsInstaller,
-    /https:\/\/codeload\.github\.com\/adilei\/skill-recorder\/zip\/\$Commit/,
+    /https:\/\/codeload\.github\.com\/microsoft\/skill-recorder\/zip\/\$Commit/,
   );
   assert.match(windowsInstaller, /https:\/\/nodejs\.org\/dist\/index\.json/);
   assert.match(windowsInstaller, /NPM_CONFIG_REGISTRY = "https:\/\/registry\.npmjs\.org\/"/);
@@ -364,7 +364,7 @@ test("source and release instructions remain compliance-preserving", async () =>
   assert.match(windowsInstaller, /@?\("run", "build"\)/);
   assert.doesNotMatch(
     windowsInstaller,
-    /github\.com\/adilei\/skill-recorder\/releases\/download/i,
+    /github\.com\/microsoft\/skill-recorder\/releases\/download/i,
   );
   assert.doesNotMatch(windowsInstaller, /\/(?:master|main)\/install\.ps1/i);
 
@@ -382,7 +382,7 @@ test("source and release instructions remain compliance-preserving", async () =>
   assert.match(unixInstaller, /\^\[0-9a-fA-F\]\{40\}\$/);
   assert.match(
     unixInstaller,
-    /https:\/\/codeload\.github\.com\/adilei\/skill-recorder\/tar\.gz\/\$COMMIT/,
+    /https:\/\/codeload\.github\.com\/microsoft\/skill-recorder\/tar\.gz\/\$COMMIT/,
   );
   assert.match(unixInstaller, /https:\/\/nodejs\.org\/dist\/latest-v24\.x/);
   assert.match(unixInstaller, /NPM_CONFIG_REGISTRY="https:\/\/registry\.npmjs\.org\/"/);
@@ -399,7 +399,7 @@ test("source and release instructions remain compliance-preserving", async () =>
   assert.match(unixInstaller, /@github\/copilot-\$\{PLATFORM\}-\$\{ARCHITECTURE\}/);
   assert.doesNotMatch(
     unixInstaller,
-    /github\.com\/adilei\/skill-recorder\/releases\/download/i,
+    /github\.com\/microsoft\/skill-recorder\/releases\/download/i,
   );
   assert.doesNotMatch(unixInstaller, /\/(?:master|main)\/install\.sh/i);
 

@@ -1267,7 +1267,7 @@ async function downloadWithRetry(url, target, fetchImpl) {
           accept: "application/octet-stream, text/plain;q=0.9, */*;q=0.8",
           "user-agent":
             "Mozilla/5.0 (compatible; SkillRecorderCompliance/1.0; " +
-            "+https://github.com/adilei/skill-recorder)",
+            "+https://github.com/microsoft/skill-recorder)",
         },
       });
       if (!response.ok || !response.body) {
@@ -1320,7 +1320,7 @@ export function renderRelinking(native, sourceManifest, policy, platform = proce
     "# Replacing and relinking native libraries",
     "",
     "Skill Recorder's own source is available under the MIT License at",
-    "https://github.com/adilei/skill-recorder. The native libraries listed in",
+    "https://github.com/microsoft/skill-recorder. The native libraries listed in",
     "`NATIVE-COMPONENTS.json` remain under their own licenses.",
     "",
     "The packaged application keeps Sharp, libvips, and related native modules outside",

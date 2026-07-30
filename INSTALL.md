@@ -18,19 +18,19 @@ published for the release.
 ### Windows 11 x64 or ARM64
 
 ```powershell
-$commit="<40-character-release-commit>"; $env:SKILL_RECORDER_COMMIT=$commit; irm "https://raw.githubusercontent.com/adilei/skill-recorder/$commit/install.ps1" | iex
+$commit="<40-character-release-commit>"; $env:SKILL_RECORDER_COMMIT=$commit; irm "https://raw.githubusercontent.com/microsoft/skill-recorder/$commit/install.ps1" | iex
 ```
 
 ### macOS or Ubuntu
 
 ```sh
-commit="<40-character-release-commit>"; curl -fsSL "https://raw.githubusercontent.com/adilei/skill-recorder/$commit/install.sh" | SKILL_RECORDER_COMMIT="$commit" bash
+commit="<40-character-release-commit>"; curl -fsSL "https://raw.githubusercontent.com/microsoft/skill-recorder/$commit/install.sh" | SKILL_RECORDER_COMMIT="$commit" bash
 ```
 
 To launch in the background and retain rolling logs on macOS or Ubuntu:
 
 ```sh
-commit="<40-character-release-commit>"; curl -fsSL "https://raw.githubusercontent.com/adilei/skill-recorder/$commit/install.sh" | SKILL_RECORDER_COMMIT="$commit" SKILL_RECORDER_DETACHED=1 bash
+commit="<40-character-release-commit>"; curl -fsSL "https://raw.githubusercontent.com/microsoft/skill-recorder/$commit/install.sh" | SKILL_RECORDER_COMMIT="$commit" SKILL_RECORDER_DETACHED=1 bash
 ```
 
 The commit appears twice deliberately: it pins both the script being executed
@@ -79,7 +79,7 @@ corresponding GitHub Release before executing it.
 ```powershell
 $commit = "<40-character-release-commit>"
 $script = Join-Path $env:TEMP "skill-recorder-install-$commit.ps1"
-Invoke-WebRequest "https://raw.githubusercontent.com/adilei/skill-recorder/$commit/install.ps1" -OutFile $script -UseBasicParsing
+Invoke-WebRequest "https://raw.githubusercontent.com/microsoft/skill-recorder/$commit/install.ps1" -OutFile $script -UseBasicParsing
 Get-FileHash $script -Algorithm SHA256
 Get-Content $script
 $env:SKILL_RECORDER_COMMIT = $commit
@@ -91,7 +91,7 @@ $env:SKILL_RECORDER_COMMIT = $commit
 ```sh
 commit="<40-character-release-commit>"
 script="$(mktemp -t skill-recorder-install.XXXXXX)"
-curl -fsSL "https://raw.githubusercontent.com/adilei/skill-recorder/$commit/install.sh" -o "$script"
+curl -fsSL "https://raw.githubusercontent.com/microsoft/skill-recorder/$commit/install.sh" -o "$script"
 shasum -a 256 "$script"
 cat "$script"
 SKILL_RECORDER_COMMIT="$commit" bash "$script"
@@ -103,7 +103,7 @@ rm -f "$script"
 ```sh
 commit="<40-character-release-commit>"
 script="$(mktemp --suffix=.sh)"
-curl -fsSL "https://raw.githubusercontent.com/adilei/skill-recorder/$commit/install.sh" -o "$script"
+curl -fsSL "https://raw.githubusercontent.com/microsoft/skill-recorder/$commit/install.sh" -o "$script"
 sha256sum "$script"
 cat "$script"
 SKILL_RECORDER_COMMIT="$commit" bash "$script"
@@ -170,7 +170,7 @@ archive rather than repository history.
 $commit = "<40-character-release-commit>"
 $archive = Join-Path $env:TEMP "skill-recorder-$commit.zip"
 $parent = Join-Path $PWD "skill-recorder-source"
-Invoke-WebRequest "https://codeload.github.com/adilei/skill-recorder/zip/$commit" -OutFile $archive -UseBasicParsing
+Invoke-WebRequest "https://codeload.github.com/microsoft/skill-recorder/zip/$commit" -OutFile $archive -UseBasicParsing
 Expand-Archive $archive $parent
 Set-Location (Join-Path $parent "skill-recorder-$commit")
 npm ci
@@ -186,7 +186,7 @@ npm start
 commit="<40-character-release-commit>"
 archive="skill-recorder-$commit.tar.gz"
 source_dir="skill-recorder-$commit"
-curl -fsSL "https://codeload.github.com/adilei/skill-recorder/tar.gz/$commit" -o "$archive"
+curl -fsSL "https://codeload.github.com/microsoft/skill-recorder/tar.gz/$commit" -o "$archive"
 mkdir "$source_dir"
 tar -xzf "$archive" --strip-components=1 -C "$source_dir"
 cd "$source_dir"
@@ -213,7 +213,7 @@ Then use the same pinned source process:
 commit="<40-character-release-commit>"
 archive="skill-recorder-$commit.tar.gz"
 source_dir="skill-recorder-$commit"
-curl -fsSL "https://codeload.github.com/adilei/skill-recorder/tar.gz/$commit" -o "$archive"
+curl -fsSL "https://codeload.github.com/microsoft/skill-recorder/tar.gz/$commit" -o "$archive"
 mkdir "$source_dir"
 tar -xzf "$archive" --strip-components=1 -C "$source_dir"
 cd "$source_dir"

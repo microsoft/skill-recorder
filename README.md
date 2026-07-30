@@ -38,7 +38,7 @@ form can teach the agent to submit *all* of them.
 **macOS / Ubuntu**
 
 ```sh
-commit="<40-character-release-commit>"; curl -fsSL "https://raw.githubusercontent.com/adilei/skill-recorder/$commit/install.sh" | SKILL_RECORDER_COMMIT="$commit" bash
+commit="<40-character-release-commit>"; curl -fsSL "https://raw.githubusercontent.com/microsoft/skill-recorder/$commit/install.sh" | SKILL_RECORDER_COMMIT="$commit" bash
 ```
 
 The release commit pins both the downloaded script and the source it builds. To keep the
@@ -46,7 +46,7 @@ application running after the terminal closes, add `SKILL_RECORDER_DETACHED=1` a
 pipe:
 
 ```sh
-commit="<40-character-release-commit>"; curl -fsSL "https://raw.githubusercontent.com/adilei/skill-recorder/$commit/install.sh" | SKILL_RECORDER_COMMIT="$commit" SKILL_RECORDER_DETACHED=1 bash
+commit="<40-character-release-commit>"; curl -fsSL "https://raw.githubusercontent.com/microsoft/skill-recorder/$commit/install.sh" | SKILL_RECORDER_COMMIT="$commit" SKILL_RECORDER_DETACHED=1 bash
 ```
 
 On macOS the installer also adds a **Skill Recorder (Source)** app to `~/Applications`, so

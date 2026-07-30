@@ -3,7 +3,7 @@
   "version": "0.3.0",
   "description": "Records a user's on-screen work session and derives a structured description for building AI-agent skills.",
   "author": "Skill Recorder contributors",
-  "repository": "github:adilei/skill-recorder",
+  "repository": "github:microsoft/skill-recorder",
   "license": "MIT",
   "private": true,
   "type": "module",

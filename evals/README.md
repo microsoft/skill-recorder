@@ -177,7 +177,7 @@ one of two flavours:
   (`view`/pdf), and reading the mailbox via `workiq_*` rather than the Mail UI.
 
 This is the suite that drove the catalogue fix in
-`electron/skillbuilder/scout-catalog.ts` (prefer first-class device CLIs — above
+`electron/architectures/catalogues/scout-catalogue.ts` (prefer first-class device CLIs — above
 all `gh` — over the browser, platform-aware for zsh/bash vs PowerShell). When you
 add a describer scenario, add the matching builder scenario so the pair stays in
 lockstep.

@@ -961,9 +961,10 @@ function SkillBuilderView({
         setBuiltName(s.name);
         setExportedPath(s.exportedPath);
         setArchitecture(s.architecture);
-        // We don't persist how it was placed; Cowork can only export, and Scout defaults
-        // to install (its primary action), so infer from the architecture on reopen.
-        setPlacement(s.architecture === "cowork" ? "export" : "install");
+        // We don't persist how it was placed; only Scout has a live skills folder to
+        // install into (its primary action) — every other target (Cowork, Generic) can
+        // only export, so infer from the architecture on reopen.
+        setPlacement(s.architecture === "scout" ? "install" : "export");
         if (s.plan) setPlan(s.plan);
         setPhase("done");
       } else if (hasSkill) {

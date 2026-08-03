@@ -109,7 +109,7 @@ export class SkillBuilder extends AgentBuilder<LiveBuild> {
     const { sessionId, architecture, feedback } = input;
     if (this.active.has(sessionId)) throw new Error("A build is already running for this session.");
     if (!catalogueFor(architecture)) {
-      throw new Error("That target architecture isn't available yet. Choose Scout or Cowork.");
+      throw new Error("That target architecture isn't available yet. Choose Scout, Cowork, or Generic agent.");
     }
     const analysis = loadPersistedAnalysis(sessionId);
     if (!analysis) throw new Error("There is no analysis for this recording yet.");

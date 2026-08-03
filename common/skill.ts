@@ -13,8 +13,8 @@ import { migrateLegacyInputsToValues, renderValues, ValueSchema } from "./values
  * *input*); this is the builder's *output*.
  */
 
-/** Agent architectures a skill can target. Scout and Cowork are enabled today. */
-export const SkillArchitecture = z.enum(["scout", "cowork", "copilot-studio"]);
+/** Agent architectures a skill can target. Scout, Cowork, and Generic are enabled today. */
+export const SkillArchitecture = z.enum(["scout", "cowork", "generic", "copilot-studio"]);
 export type SkillArchitecture = z.infer<typeof SkillArchitecture>;
 
 /** UI metadata for the architecture selector (shared so main + renderer agree). */
@@ -30,6 +30,7 @@ export interface ArchitectureOption {
 export const ARCHITECTURES: readonly ArchitectureOption[] = [
   { id: "scout", label: "Scout", enabled: true, note: "Microsoft Scout: native WorkIQ, browser, files, and built-in skills." },
   { id: "cowork", label: "Cowork", enabled: true, note: "Microsoft 365 Copilot (Cowork): native Teams, Outlook, Calendar, SharePoint, files, and built-in skills." },
+  { id: "generic", label: "Generic agent", enabled: true, note: "Portable skill with no product-specific tools — shell, files, and HTTP fetch only." },
   { id: "copilot-studio", label: "Copilot Studio", enabled: false, note: "Coming soon." },
 ] as const;
 
@@ -81,6 +82,13 @@ export const TARGETS: readonly BuildTarget[] = [
     label: "Cowork skill",
     enabled: true,
     note: "An on-demand skill for Microsoft 365 Copilot (Cowork) you export and install.",
+  },
+  {
+    kind: "skill",
+    architecture: "generic",
+    label: "Generic agent skill",
+    enabled: true,
+    note: "A portable skill with no product-specific tools, for any destination agent.",
   },
   {
     kind: "skill",

@@ -1,5 +1,6 @@
 import type { SkillArchitecture } from "../../common/skill";
 import { coworkCatalogue } from "./cowork-catalog";
+import { genericCatalogue } from "./generic-catalog";
 
 /**
  * A **static, versioned** snapshot of the target agent's native capabilities,
@@ -123,6 +124,8 @@ export function catalogueFor(architecture: SkillArchitecture): string | null {
       return SCOUT_CATALOGUE;
     case "cowork":
       return coworkCatalogue();
+    case "generic":
+      return genericCatalogue();
     default:
       return null;
   }

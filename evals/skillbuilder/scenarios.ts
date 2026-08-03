@@ -177,6 +177,32 @@ const githubIssueTriage: SkillBuilderScenario = {
   },
 };
 
+/** Same recording as githubIssueTriage, targeting the Generic-agent catalogue: must still reach
+ *  for the gh CLI (a universal primitive — the shell), but the plan must name NO product-specific
+ *  tool ID (no workiq_*, no m365_*, no named browser-tool suite) since the destination agent is
+ *  unknown. */
+const githubIssueTriageGeneric: SkillBuilderScenario = {
+  ...githubIssueTriage,
+  id: "github-issue-triage-generic",
+  title: "Triage new bug issues on GitHub (generic agent)",
+  architecture: "generic",
+  rubric: {
+    mustUseAny: [["gh "], ["gh issue", "gh api"]],
+    forbidden: [
+      "playwright",
+      "browser_",
+      "workiq",
+      "m365_",
+      "click",
+      "navigate to github",
+      "github.com/acme",
+    ],
+    minValues: 1,
+    minCalculations: 1,
+    minActions: 1,
+  },
+};
+
 /* --- Cowork (Microsoft 365 Copilot) scenarios ----------------------------- */
 
 /** Read a Teams channel in the web app, summarize, post a digest — must use the m365_teams tool, never the browser. */
@@ -399,6 +425,7 @@ const coworkCalendarSchedule: SkillBuilderScenario = {
 export const skillScenarios: SkillBuilderScenario[] = [
   priceTracker,
   githubIssueTriage,
+  githubIssueTriageGeneric,
   coworkTeamsDigest,
   coworkOutlookReply,
   coworkCalendarSchedule,

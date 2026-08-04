@@ -270,6 +270,16 @@ export interface MarkerResult {
   error?: string;
 }
 
+/**
+ * Broadcast whenever the global "add marker" shortcut fires during a recording,
+ * so any open window (chiefly the recording controls overlay) can show a
+ * lightweight, non-blocking confirmation. Firing is decided in the main
+ * process; this event does not itself request a marker be recorded.
+ */
+export interface MarkerAddedEvent {
+  timestamp: number;
+}
+
 export interface DeleteSessionResult {
   ok: boolean;
   error?: string;
@@ -361,6 +371,7 @@ export const IPC = {
   microphoneSettingsChanged: "microphone:settings-changed",
   status: "recorder:status",
   marker: "recorder:marker",
+  markerAdded: "recorder:marker-added",
   doctor: "doctor:check",
   copilotSignIn: "copilot:sign-in",
   statusChanged: "recorder:status-changed",
@@ -416,6 +427,8 @@ export interface SkillRecorderApi {
   ): () => void;
   status(): Promise<RecorderStatus>;
   marker(note: string): Promise<MarkerResult>;
+  /** Fires after a marker is recorded via the global "add marker" shortcut. */
+  onMarkerAdded(cb: (event: MarkerAddedEvent) => void): () => void;
   doctor(): Promise<DoctorReport>;
   /**
    * Open a terminal window running the bundled Copilot CLI's `login` command, so the

@@ -4,35 +4,35 @@ Capabilities that are wired up in the codebase but deliberately not surfaced in
 the UI yet. Each entry is dormant, not dead: the backend path stays intact so the
 feature can be revived without re-plumbing it.
 
-## Manual markers ("Add marker")
+## Manual markers ("Add marker") — revived
 
-**Status:** backend retained, UI removed.
+**Status:** live, via a global hotkey instead of the old blocking button.
 
-A marker is a user-authored note captured mid-recording ("what are you doing
-right now?"). It was originally a HUD button that opened a blocking prompt.
+A marker is a precise "this instant matters" signal captured mid-recording. It
+was originally a HUD button that opened a blocking `window.prompt`; that version
+was removed in favor of voice narration, since narration already captures the
+same "stated intent" hands-free and continuously.
 
-**Why the button was removed:** voice narration supersedes it. Narration captures
-the same "stated intent" signal continuously, hands-free, and timestamped, without
-interrupting the task or letting a prompt dialog leak into the recorded frames. In
-practice the button was never used, and the describer already treated the "flick
-back to add a marker" moment as noise.
-
-**What still exists (the plumbing behind it):**
+**Current implementation:** `CommandOrControl+Shift+M` fires a marker at any
+point during a recording, from anywhere (not just while the app is focused),
+mirroring how `CommandOrControl+Shift+R` toggles recording. It never blocks or
+steals focus:
 
 | Layer | Location |
 | --- | --- |
-| Renderer bridge | `electron/preload.cjs` (`window.skillRecorder.marker`) |
-| IPC channel + result type | `common/ipc.ts`, `electron/ipc.ts` |
+| Global shortcut + dispatch | `electron/main.ts` (`addMarker`) |
 | Recorder handler | `electron/recorder/controller.ts` (`marker()`) |
+| Renderer bridge | `electron/preload.cjs` (`window.skillRecorder.marker`, `onMarkerAdded`) |
+| Confirmation broadcast | `common/ipc.ts` (`IPC.markerAdded`, `MarkerAddedEvent`) |
+| Toast UI | `src/RecordingControls.tsx` (`recording-marker-toast`), styled in `src/App.css` |
 | Event type + payload | `common/events.ts` (`EventType.Marker`, `MarkerPayload`) |
 | Correlation / bundling | `common/correlation.ts`, `common/bundle.ts` (`step.markers`) |
 | Description surfacing | `common/describe.ts`, describer + skillbuilder `tools.ts` |
 
-**What was removed:** the `Add marker` button and its `addMarker` handler in
-`src/Recorder.tsx`, plus the `.marker` styles in `src/App.css`.
+The confirmation is a small pill in the recording controls overlay that fades
+out on its own after ~2 seconds — no dialog, no interruption.
 
-**How to revive it well:** don't bring back the blocking `window.prompt`. Prefer a
-low-friction trigger that doesn't interrupt the recording, e.g. a global hotkey
-that flags the current moment (optionally with a quick inline note), so a marker
-becomes a precise "this instant matters" signal that complements the continuous
-narration transcript rather than duplicating it.
+**Not yet implemented:** an optional inline note. `marker(note)` already accepts
+free text, but the hotkey currently always records an empty note; typing a note
+into the toast without delaying the marker's timestamp (or introducing a second
+IPC round trip) needs a bit more design and is left as a follow-up.

@@ -15,6 +15,7 @@ const IPC = {
   microphoneSettingsChanged: "microphone:settings-changed",
   status: "recorder:status",
   marker: "recorder:marker",
+  markerAdded: "recorder:marker-added",
   doctor: "doctor:check",
   copilotSignIn: "copilot:sign-in",
   statusChanged: "recorder:status-changed",
@@ -88,6 +89,11 @@ contextBridge.exposeInMainWorld("skillRecorder", {
   },
   status: () => ipcRenderer.invoke(IPC.status),
   marker: (note) => ipcRenderer.invoke(IPC.marker, note),
+  onMarkerAdded: (cb) => {
+    const listener = (_event, payload) => cb(payload);
+    ipcRenderer.on(IPC.markerAdded, listener);
+    return () => ipcRenderer.removeListener(IPC.markerAdded, listener);
+  },
   doctor: () => ipcRenderer.invoke(IPC.doctor),
   copilotSignIn: () => ipcRenderer.invoke(IPC.copilotSignIn),
   onStatusChanged: (cb) => {

@@ -272,6 +272,23 @@ app.whenReady().then(async () => {
     log.warn("Global shortcut registration failed");
   }
 
+  // Marker capture: a low-friction, hands-free way to flag "this instant
+  // matters" without interrupting the recording. Deliberately not a dialog —
+  // see docs/future-features.md for why the old blocking "Add marker" button
+  // was removed and how a revival should behave.
+  const addMarker = () => {
+    if (recorder.state !== "recording") return;
+    const result = recorder.marker("");
+    if (!result.ok) {
+      log.warn("Marker capture failed:", result.error);
+      return;
+    }
+    broadcast(IPC.markerAdded, { timestamp: Date.now() });
+  };
+  if (!globalShortcut.register("CommandOrControl+Shift+M", addMarker)) {
+    log.warn("Marker shortcut registration failed");
+  }
+
   app.on("activate", () => {
     if (recorder.state === "recording") {
       showRecordingControls();

@@ -1176,6 +1176,37 @@ button:focus-visible,
     white-space: nowrap;
   }
 
+  .recording-marker-toast {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    align-self: center;
+    padding: 7px 13px;
+    border: 1px solid var(--hud-line);
+    border-radius: 999px;
+    background: var(--hud-surface);
+    box-shadow: var(--hud-shadow);
+    color: var(--hud-text);
+    font-size: 11px;
+    font-weight: 600;
+    animation:
+      recording-confirm-in 0.15s ease-out,
+      recording-marker-toast-out 0.2s ease-in 2s forwards;
+    pointer-events: none;
+  }
+
+  .recording-marker-toast svg {
+    flex: none;
+    color: var(--hud-accent);
+  }
+
+  @keyframes recording-marker-toast-out {
+    to {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+  }
+
   .recording-microphone-options {
     display: flex;
     flex-direction: column;
@@ -1301,7 +1332,8 @@ button:focus-visible,
 @media (prefers-reduced-motion: reduce) {
   .recording-live-dot,
   .recording-discard-confirm,
-  .recording-microphone-menu {
+  .recording-microphone-menu,
+  .recording-marker-toast {
     animation: none;
   }
 }

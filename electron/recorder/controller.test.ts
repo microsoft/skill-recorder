@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdtemp, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -95,6 +95,43 @@ test("microphone toggles are serialized and finalized on save", async () => {
 
     await controller.whenProcessed();
     assert.equal(processed, 1);
+  });
+});
+
+test("marker is rejected when not recording and persisted when recording", async () => {
+  await withSessionsRoot(async (root) => {
+    const audio = new FakeAudioRecorder();
+    const controller = new RecorderController({
+      resolveConfig: () => ({ ...FULL_CAPTURE, video: false }),
+      buildCollectors: () => [],
+      createAudioRecorder: () => audio,
+      deleteSession: async () => undefined,
+    });
+
+    const rejected = controller.marker("too early");
+    assert.equal(rejected.ok, false);
+    assert.match(rejected.error ?? "", /not recording/i);
+
+    const started = await controller.start();
+    assert.equal(started.ok, true);
+
+    const accepted = controller.marker("checkpoint reached");
+    assert.equal(accepted.ok, true);
+
+    assert.equal((await controller.stop()).ok, true);
+
+    assert.ok(started.sessionId, "expected session ID");
+    const events = await readFile(
+      path.join(root, started.sessionId, "events.jsonl"),
+      "utf8",
+    );
+    const marker = events
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { type: string; payload: { note: string } })
+      .find((event) => event.type === "marker");
+    assert.ok(marker, "expected a persisted marker event");
+    assert.equal(marker?.payload.note, "checkpoint reached");
   });
 });
 

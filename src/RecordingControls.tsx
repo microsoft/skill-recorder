@@ -21,6 +21,7 @@ export function RecordingControls() {
   const [devicePending, setDevicePending] = useState(false);
   const [finishPending, setFinishPending] = useState<"done" | "discard" | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [markerToast, setMarkerToast] = useState(false);
   const keepRecordingRef = useRef<HTMLButtonElement>(null);
   const microphoneControlRef = useRef<HTMLDivElement>(null);
   const microphoneMenuRef = useRef<HTMLElement>(null);
@@ -36,6 +37,18 @@ export function RecordingControls() {
       offMicrophones();
     };
   }, []);
+
+  // Non-blocking confirmation for the global "add marker" shortcut. Never
+  // steals focus or pauses the recording — it just flashes and fades.
+  useEffect(() => {
+    return window.skillRecorder.onMarkerAdded(() => setMarkerToast(true));
+  }, []);
+
+  useEffect(() => {
+    if (!markerToast) return;
+    const timer = setTimeout(() => setMarkerToast(false), 2200);
+    return () => clearTimeout(timer);
+  }, [markerToast]);
 
   const recording = status?.state === "recording";
   const startedAt = status?.startedAt ?? null;
@@ -54,16 +67,17 @@ export function RecordingControls() {
     if (recording) return;
     if (confirmDiscard) setConfirmDiscard(false);
     if (showMicrophoneMenu) setShowMicrophoneMenu(false);
+    if (markerToast) setMarkerToast(false);
     setMicrophonePending(false);
     setDevicePending(false);
     setFinishPending(null);
-  }, [confirmDiscard, recording, showMicrophoneMenu]);
+  }, [confirmDiscard, markerToast, recording, showMicrophoneMenu]);
 
   useEffect(() => {
     void window.skillRecorder.setRecordingControlsExpanded(
-      confirmDiscard || showMicrophoneMenu,
+      confirmDiscard || showMicrophoneMenu || markerToast,
     );
-  }, [confirmDiscard, showMicrophoneMenu]);
+  }, [confirmDiscard, markerToast, showMicrophoneMenu]);
 
   useEffect(() => {
     if (!confirmDiscard) return;
@@ -244,6 +258,13 @@ export function RecordingControls() {
         </section>
       )}
 
+      {markerToast && !confirmDiscard && !showMicrophoneMenu && (
+        <section className="recording-marker-toast" role="status">
+          <MarkerIcon />
+          <span>Marker added</span>
+        </section>
+      )}
+
       {showMicrophoneMenu && (
         <section
           ref={microphoneMenuRef}
@@ -404,6 +425,19 @@ function ChevronIcon({ open }: { open: boolean }) {
         stroke="currentColor"
         strokeWidth="1.4"
         strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function MarkerIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path
+        d="M8 1.5 9.7 5l3.8.55-2.75 2.68.65 3.77L8 10.2l-3.4 1.8.65-3.77L2.5 5.55 6.3 5 8 1.5Z"
+        stroke="currentColor"
+        strokeWidth="1.3"
         strokeLinejoin="round"
       />
     </svg>

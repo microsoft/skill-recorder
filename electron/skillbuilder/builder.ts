@@ -15,6 +15,7 @@ import {
   type SkillPlan,
   type SkillSubmission,
 } from "../../common/skill";
+import { constrainAllowedTools } from "../../common/allowed-tools";
 import { unresolvedTokens } from "../../common/values";
 import type { SkillBuildInput, SkillBuildProgress } from "../../common/ipc";
 import { AgentBuilder, type BaseLive } from "../builders/agent-builder";
@@ -172,13 +173,25 @@ export class SkillBuilder extends AgentBuilder<LiveBuild> {
       if (unknownTokens.length) {
         log.warn(`skill body references unknown value tokens: ${unknownTokens.map((t) => `{{${t}}}`).join(", ")}`);
       }
-      // The frontmatter comes from the edited plan (authoritative); only the body is
-      // the agent's generated prose. allowed-tools may be tightened by the agent to the
-      // final steps, but never emptied below what the plan declared.
+      // The frontmatter comes from the edited plan (authoritative); only the body is the
+      // agent's generated prose. allowed-tools is the capability grant the user approved
+      // on the plan screen, so the agent may narrow it to the steps it actually emitted
+      // but must never widen it: anything the approved plan does not cover is dropped
+      // here rather than written into an installed skill's frontmatter.
+      const { allowed: allowedTools, dropped: refusedTools } = constrainAllowedTools(
+        submission.allowedTools,
+        plan.allowedTools,
+      );
+      if (refusedTools.length) {
+        log.warn(
+          "skill requested allowed-tools outside the approved plan; dropped: " +
+            refusedTools.join(", "),
+        );
+      }
       const finalSubmission: SkillSubmission = {
         name: plan.name,
         description: plan.description,
-        allowedTools: submission.allowedTools.length ? submission.allowedTools : plan.allowedTools,
+        allowedTools,
         body: submission.body,
       };
       const built = toBuiltSkill(sessionId, plan.architecture, finalSubmission, plan);

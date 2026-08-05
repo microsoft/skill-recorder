@@ -17,7 +17,12 @@ import type {
   SkillArchitecture,
   SkillPlan,
 } from "../common/skill";
-import { ARCHITECTURES, DEFAULT_TARGET, TARGETS } from "../common/skill";
+import {
+  ARCHITECTURES,
+  DEFAULT_TARGET,
+  TARGETS,
+  buildTargetFor,
+} from "../common/skill";
 import type { AutomationPlan, BuiltAutomation } from "../common/automation";
 import {
   DEFAULT_NARRATION_LANGUAGE,
@@ -1207,6 +1212,11 @@ function AutomationBuilderView({
   const [builtName, setBuiltName] = useState("");
   const canceled = useRef(false);
   const inFlight = useRef(false);
+  // The initial architecture can reflect a prior skill choice while a saved automation loads.
+  const automationInstallTargetLabel =
+    phase === "done"
+      ? buildTargetFor(architecture, "automation").installTargetLabel
+      : "";
 
   const updatePlan = useCallback((part: Partial<AutomationPlan>) => {
     setPlan((prev) => (prev ? { ...prev, ...part } : prev));
@@ -1399,7 +1409,9 @@ function AutomationBuilderView({
             </p>
             {exportedPath && <p className="sb-path">{exportedPath}</p>}
             <p className="sb-import-hint">
-              Import it into Scout: open Scout → Automations → Import, and choose this bundle folder.
+              Import it into {automationInstallTargetLabel}: open{" "}
+              {automationInstallTargetLabel} → Automations → Import, and choose this bundle
+              folder.
             </p>
           </div>
         )}

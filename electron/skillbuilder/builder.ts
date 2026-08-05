@@ -7,6 +7,7 @@ import { approveAll, type CopilotSession } from "@github/copilot-sdk";
 import {
   BuiltSkillSchema,
   renderSkillMarkdown,
+  requireTargetPlacement,
   SkillPlanSchema,
   slugifySkillName,
   toBuiltSkill,
@@ -145,6 +146,7 @@ export class SkillBuilder extends AgentBuilder<LiveBuild> {
     // proposed plan for older callers that don't pass one.
     const plan = editedPlan ? SkillPlanSchema.parse(editedPlan) : held?.lastPlan ?? null;
     if (!plan) throw new Error("There is no plan to build from yet.");
+    requireTargetPlacement(plan.architecture, "skill", target.kind);
     // The pool may have evicted the live conversation while the user edited the plan;
     // recreate one so export always works.
     if (!held) held = await this.createLive(sessionId, plan.architecture);

@@ -12,6 +12,7 @@ export interface ArchitectureTargetDefinition {
   label: string;
   enabled: boolean;
   note: string;
+  /** Ordered delivery capabilities; the first entry is the primary/default placement. */
   placements: readonly TargetPlacement[];
 }
 
@@ -186,6 +187,38 @@ export const TARGETS: readonly BuildTarget[] = ARCHITECTURE_MANIFEST.flatMap(
       installTargetLabel,
     })),
 );
+
+export function buildTargetFor(
+  architecture: SkillArchitecture,
+  kind: BuildKind,
+): BuildTarget {
+  const target = TARGETS.find(
+    (candidate) => candidate.architecture === architecture && candidate.kind === kind,
+  );
+  if (!target) {
+    throw new Error(
+      `No "${kind}" target is configured for architecture "${architecture}".`,
+    );
+  }
+  return target;
+}
+
+export function requireTargetPlacement(
+  architecture: SkillArchitecture,
+  kind: BuildKind,
+  placement: TargetPlacement,
+): BuildTarget {
+  const target = buildTargetFor(architecture, kind);
+  if (!target.enabled) {
+    throw new Error(`Architecture "${architecture}" target "${kind}" is not enabled.`);
+  }
+  if (!target.placements.includes(placement)) {
+    throw new Error(
+      `Architecture "${architecture}" target "${kind}" does not support "${placement}" placement.`,
+    );
+  }
+  return target;
+}
 
 const defaultTarget = TARGETS.find((target) => target.enabled);
 if (!defaultTarget) {

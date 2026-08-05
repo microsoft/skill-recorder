@@ -1,4 +1,8 @@
-import { TARGETS, type BuildTarget, type SkillArchitecture } from "../common/architecture-registry";
+import {
+  buildTargetFor,
+  type BuildTarget,
+  type SkillArchitecture,
+} from "../common/architecture-registry";
 import type { SkillPlacement } from "../common/ipc";
 
 export interface SkillPlacementAction {
@@ -16,13 +20,7 @@ export interface SkillPlacementModel {
 }
 
 export function skillTargetFor(architecture: SkillArchitecture): BuildTarget {
-  const target = TARGETS.find(
-    (candidate) => candidate.kind === "skill" && candidate.architecture === architecture,
-  );
-  if (!target) {
-    throw new Error(`No skill target is configured for architecture "${architecture}".`);
-  }
-  return target;
+  return buildTargetFor(architecture, "skill");
 }
 
 export function skillPlacementModel(target: BuildTarget): SkillPlacementModel {

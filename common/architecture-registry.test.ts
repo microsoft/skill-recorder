@@ -6,8 +6,10 @@ import {
   DEFAULT_TARGET,
   SkillArchitecture,
   TARGETS,
+  buildTargetFor,
   defineArchitectures,
   enabledArchitectureLabels,
+  requireTargetPlacement,
 } from "./architecture-registry";
 import type {
   ArchitectureDefinition,
@@ -49,9 +51,26 @@ test("the manifest derives architecture validation and target availability", () 
   );
   assert.equal(DEFAULT_TARGET.architecture, "scout");
   assert.equal(DEFAULT_TARGET.kind, "skill");
+  assert.equal(
+    buildTargetFor(DEFAULT_TARGET.architecture, "automation").installTargetLabel,
+    "Scout",
+  );
 
   assert.deepEqual(enabledArchitectureLabels("skill"), ["Scout", "Cowork"]);
   assert.deepEqual(enabledArchitectureLabels("automation"), ["Scout"]);
+});
+
+test("target placements are enforced from the manifest", () => {
+  assert.equal(requireTargetPlacement("scout", "skill", "install").architecture, "scout");
+  assert.equal(requireTargetPlacement("cowork", "skill", "export").architecture, "cowork");
+  assert.throws(
+    () => requireTargetPlacement("cowork", "skill", "install"),
+    /Architecture "cowork" target "skill" does not support "install" placement/,
+  );
+  assert.throws(
+    () => requireTargetPlacement("copilot-studio", "skill", "export"),
+    /Architecture "copilot-studio" target "skill" is not enabled/,
+  );
 });
 
 test("architecture definitions reject invalid registry shapes", () => {

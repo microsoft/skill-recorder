@@ -2,7 +2,12 @@ import type { Analysis, AnalysisFeedback, AnalysisStep, Confidence } from "./ana
 import type { AutomationPlan, BuiltAutomation } from "./automation";
 import type { MicrophoneDevice } from "./microphone";
 import type { NarrationLanguage } from "./narration";
-import type { BuiltSkill, SkillArchitecture, SkillPlan } from "./skill";
+import type {
+  BuiltSkill,
+  SkillArchitecture,
+  SkillPlan,
+  TargetPlacement,
+} from "./skill";
 import type { RecorderState } from "./types";
 
 /** The last completed session — the one that can be analyzed. */
@@ -149,7 +154,7 @@ export interface SkillPlanResult {
  * - **install** — write it into the target agent's live skills folder (Scout auto-loads it).
  * - **export** — download it to a folder the user picks (the only option for Cowork).
  */
-export type SkillPlacement = "install" | "export";
+export type SkillPlacement = TargetPlacement;
 
 /** Result of finalizing + placing a skill. */
 export interface SkillCreateResult {

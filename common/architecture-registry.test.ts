@@ -3,10 +3,15 @@ import test from "node:test";
 
 import {
   ARCHITECTURES,
+  DEFAULT_TARGET,
   SkillArchitecture,
   TARGETS,
   defineArchitectures,
   enabledArchitectureLabels,
+} from "./architecture-registry";
+import type {
+  ArchitectureDefinition,
+  ArchitectureTargetDefinition,
 } from "./architecture-registry";
 
 test("the manifest derives architecture validation and target availability", () => {
@@ -26,18 +31,24 @@ test("the manifest derives architecture validation and target availability", () 
     ],
   );
   assert.deepEqual(
-    TARGETS.map(({ architecture, kind, enabled }) => [
-      architecture,
-      kind,
-      enabled,
-    ]),
+    TARGETS.map(
+      ({ architecture, kind, enabled, placements, installTargetLabel }) => [
+        architecture,
+        kind,
+        enabled,
+        placements,
+        installTargetLabel,
+      ],
+    ),
     [
-      ["scout", "skill", true],
-      ["scout", "automation", true],
-      ["cowork", "skill", true],
-      ["copilot-studio", "skill", false],
+      ["scout", "skill", true, ["install", "export"], "Scout"],
+      ["scout", "automation", true, ["install"], "Scout"],
+      ["cowork", "skill", true, ["export"], "Microsoft 365 Copilot"],
+      ["copilot-studio", "skill", false, ["export"], "Copilot Studio"],
     ],
   );
+  assert.equal(DEFAULT_TARGET.architecture, "scout");
+  assert.equal(DEFAULT_TARGET.kind, "skill");
 
   assert.deepEqual(enabledArchitectureLabels("skill"), ["Scout", "Cowork"]);
   assert.deepEqual(enabledArchitectureLabels("automation"), ["Scout"]);
@@ -49,37 +60,66 @@ test("architecture definitions reject invalid registry shapes", () => {
     label: "Skill",
     enabled: true,
     note: "Enabled.",
+    placements: ["install"] as const,
   };
+  const architecture = (
+    id: string,
+    targets: readonly ArchitectureTargetDefinition[] = [skill],
+  ): ArchitectureDefinition => ({
+    id,
+    label: id,
+    installTargetLabel: id,
+    note: `${id}.`,
+    targets,
+  });
 
   assert.throws(
     () => defineArchitectures([]),
     /Architecture manifest must contain at least one architecture/,
   );
   assert.throws(
-    () =>
-      defineArchitectures([
-        { id: "duplicate", label: "First", note: "First.", targets: [skill] },
-        { id: "duplicate", label: "Second", note: "Second.", targets: [skill] },
-      ]),
+    () => defineArchitectures([architecture("duplicate"), architecture("duplicate")]),
     /Duplicate architecture id "duplicate"/,
   );
   assert.throws(
-    () =>
-      defineArchitectures([
-        { id: "empty", label: "Empty", note: "Empty.", targets: [] },
-      ]),
+    () => defineArchitectures([architecture("empty", [])]),
     /Architecture "empty" must declare at least one target/,
   );
   assert.throws(
     () =>
       defineArchitectures([
-        {
-          id: "duplicate-kind",
-          label: "Duplicate kind",
-          note: "Invalid.",
-          targets: [skill, { ...skill, label: "Another skill" }],
-        },
+        architecture("duplicate-kind", [skill, { ...skill, label: "Another skill" }]),
       ]),
     /Architecture "duplicate-kind" declares "skill" more than once/,
+  );
+  assert.throws(
+    () =>
+      defineArchitectures([
+        {
+          ...architecture("empty-placement-list"),
+          targets: [{ ...skill, placements: [] }],
+        },
+      ]),
+    /Architecture "empty-placement-list" target "skill" must declare at least one placement/,
+  );
+  assert.throws(
+    () =>
+      defineArchitectures([
+        {
+          ...architecture("duplicate-placement"),
+          targets: [{ ...skill, placements: ["install", "install"] }],
+        },
+      ]),
+    /Architecture "duplicate-placement" target "skill" declares placement "install" more than once/,
+  );
+  assert.throws(
+    () =>
+      defineArchitectures([
+        {
+          ...architecture("blank-install-target"),
+          installTargetLabel: "   ",
+        },
+      ]),
+    /Architecture "blank-install-target" must declare an install target label\./,
   );
 });

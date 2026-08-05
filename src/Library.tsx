@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { Analysis, AnalysisStep } from "../common/analysis";
 import type {
@@ -17,7 +17,7 @@ import type {
   SkillArchitecture,
   SkillPlan,
 } from "../common/skill";
-import { ARCHITECTURES, TARGETS } from "../common/skill";
+import { ARCHITECTURES, DEFAULT_TARGET, TARGETS } from "../common/skill";
 import type { AutomationPlan, BuiltAutomation } from "../common/automation";
 import {
   DEFAULT_NARRATION_LANGUAGE,
@@ -32,6 +32,7 @@ import {
   SkillStepTiles,
 } from "./plan-edit";
 import { formatBytes, formatDur, formatWhen, shortLabel } from "./format";
+import { skillPlacementModel, skillTargetFor } from "./skill-placement";
 
 export function Library() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -493,7 +494,7 @@ function AnalysisWorkspace({
         ? "automation"
         : "none";
   const [launch, setLaunch] = useState<LaunchTarget>(initialLaunch);
-  const [chosenArch, setChosenArch] = useState<SkillArchitecture>("scout");
+  const [chosenArch, setChosenArch] = useState<SkillArchitecture>(DEFAULT_TARGET.architecture);
   // Set while the user is deliberately canceling, so the aborted run's rejection
   // doesn't surface as an error toast.
   const canceled = useRef(false);
@@ -927,6 +928,11 @@ function SkillBuilderView({
   hasSkill: boolean;
   onClose: () => void;
 }) {
+  const defaultPlacementFor = useCallback(
+    (architecture: SkillArchitecture): SkillPlacement =>
+      skillPlacementModel(skillTargetFor(architecture)).defaultPlacement,
+    [],
+  );
   // If this recording is already a skill, hold on a spinner until we've loaded it,
   // so we never flash the planning state before jumping to the skill.
   const [phase, setPhase] = useState<BuildPhase>(hasSkill ? "loading" : "ready");
@@ -938,7 +944,8 @@ function SkillBuilderView({
   const [builtName, setBuiltName] = useState("");
   const canceled = useRef(false);
   const inFlight = useRef(false);
-  const [placement, setPlacement] = useState<SkillPlacement>("install");
+  const [placement, setPlacement] = useState<SkillPlacement>(() => defaultPlacementFor(initialArch));
+  const placementModel = useMemo(() => skillPlacementModel(skillTargetFor(architecture)), [architecture]);
 
   const updatePlan = useCallback((part: Partial<SkillPlan>) => {
     setPlan((prev) => (prev ? { ...prev, ...part } : prev));
@@ -961,9 +968,9 @@ function SkillBuilderView({
         setBuiltName(s.name);
         setExportedPath(s.exportedPath);
         setArchitecture(s.architecture);
-        // We don't persist how it was placed; Cowork can only export, and Scout defaults
-        // to install (its primary action), so infer from the architecture on reopen.
-        setPlacement(s.architecture === "cowork" ? "export" : "install");
+        // We don't persist how it was placed, so reopening infers the architecture's
+        // current default placement from the manifest.
+        setPlacement(defaultPlacementFor(s.architecture));
         if (s.plan) setPlan(s.plan);
         setPhase("done");
       } else if (hasSkill) {
@@ -974,7 +981,7 @@ function SkillBuilderView({
     return () => {
       live = false;
     };
-  }, [sessionId, hasSkill]);
+  }, [sessionId, hasSkill, defaultPlacementFor]);
 
   useEffect(() => {
     return window.skillRecorder.onSkillProgress((p: SkillBuildProgress) => {
@@ -1124,11 +1131,13 @@ function SkillBuilderView({
             <div className="sb-check" aria-hidden>
               ✓
             </div>
-            <h2 className="sb-title">{placement === "install" ? "Added to Scout" : "Skill exported"}</h2>
+            <h2 className="sb-title">
+              {placement === "install" ? placementModel.installDoneTitle : "Skill exported"}
+            </h2>
             <p>
               <code className="sb-slug">{builtName}</code>{" "}
               {placement === "install"
-                ? "is now in Scout — it loads automatically."
+                ? placementModel.installDoneMessage
                 : `is built for ${archLabel(architecture)}. Install it wherever ${archLabel(architecture)} loads skills.`}
             </p>
             {exportedPath && <p className="sb-path">{exportedPath}</p>}
@@ -1140,26 +1149,16 @@ function SkillBuilderView({
         <div className="ws-foot">
           <span className="foot-status" />
           <div className="ws-foot-actions">
-            {architecture === "scout" && (
+            {placementModel.actions.map((action) => (
               <button
-                className="ghost"
-                onClick={() => void place("export")}
-                title="Download the skill to a folder you choose"
+                key={action.placement}
+                className={action.primary ? "record-cta" : "ghost"}
+                onClick={() => void place(action.placement)}
+                title={action.title}
               >
-                Export…
+                {action.label}
               </button>
-            )}
-            <button
-              className="record-cta"
-              onClick={() => void place(architecture === "scout" ? "install" : "export")}
-              title={
-                architecture === "scout"
-                  ? "Add the skill to Scout so it loads automatically"
-                  : "Download the skill to a folder you choose"
-              }
-            >
-              {architecture === "scout" ? "Add to Scout" : "Export skill"}
-            </button>
+            ))}
           </div>
         </div>
       )}

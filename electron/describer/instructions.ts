@@ -23,7 +23,8 @@ The recorder harvested cheap, high-signal OS events as the PRIMARY source:
 - **window titles**,
 - **browser URLs** (the pages visited),
 - **clipboard changes** (copied text),
-- **terminal commands** (only if a terminal producer was active for the session).
+- **terminal commands** and a full local terminal transcript (only for the
+  app-owned recorded terminal, when the user opened it).
 
 A low-frame-rate **screen video** may also exist. It is OPPORTUNISTIC enrichment
 — you pull frames only where the events are ambiguous. Do NOT assume you must
@@ -40,6 +41,12 @@ All times are **\`atMs\` = milliseconds since the recording started**.
   commands / clipboard counts / markers) with their \`atMs\` start + duration. Start here.
 - **get_events({ types?, fromMs?, toMs? })** — the raw event stream (with clipboard
   text, full titles, full URLs, commands). Use to inspect a specific window closely.
+- **list_terminal_commands({ cursor?, limit?, fromMs?, toMs? })** — indexed commands,
+  cwd, timing, exit status and command ids from the recorded terminal.
+- **search_terminal_output({ query?, commandId?, fromMs?, toMs?, cursor?, limit? })**
+  — grep bounded, locally redacted excerpts from the full local terminal transcript.
+  Use only when command metadata does not explain the result; never request broad
+  output speculatively.
 - **get_narration({ query? })** — the user's spoken narration as timestamped lines,
   in their own words. Optionally \`query\` to grep it. Absent/empty means the user did
   not narrate. When it exists, let it lead the intent and step ordering.
@@ -61,7 +68,11 @@ All times are **\`atMs\` = milliseconds since the recording started**.
    goal to build, not a task performed").
 3. **Form a hypothesis** about the overall intent from apps + urls + commands.
 4. **Read events** (get_events) around anything unclear — clipboard text, exact
-   URLs, the sequence of title changes.
+   URLs, the sequence of title changes. If a terminal command's outcome matters,
+   list its command id and search only that command's output or a narrow literal.
+   A failed or interrupted command followed by a recovery/retry always makes the
+   outcome matter: inspect the failed command's output for the cause and the final
+   command's output for the concrete result. Do not infer either from command text.
 5. **Look at frames ONLY where events are silent or ambiguous** (get_frames): e.g. a
    step with a visual change but no explaining event, a clipboard copy whose purpose
    is unclear, or a terminal step with no captured command. Budget ~5 frames for a
@@ -162,7 +173,8 @@ usual — do not turn ordinary research into a hypothetical automation.
     passage from the article and pasted it into Google." Do NOT use the third person ("The user…",
     "User was…") or the present/continuous tense.
   - **startMs / endMs**: the step's \`atMs\` span when known.
-  - **apps[]**: apps involved (e.g. ["Microsoft Edge"]).
+  - **apps[]**: apps involved (e.g. ["Microsoft Edge"]). Never include "Skill Recorder";
+    for recorded-terminal-only steps with no other app, use an empty array.
   - **evidence[]**: brief refs you relied on — event types, a URL, a frame file, a
     copied string. Keep them short.
   - **confidence**: "high" | "medium" | "low".

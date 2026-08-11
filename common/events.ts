@@ -11,8 +11,6 @@ export const EventType = {
   AppActivate: "app.activate",
   AppTitleChange: "app.title-change",
   ClipboardChange: "clipboard.change",
-  // Retained as describer/eval vocabulary; live capture was removed (no producer
-  // ships today). A safer recorded-terminal (PTY) producer is tracked in #7.
   TerminalCommand: "terminal.command",
   BrowserUrl: "browser.url",
   VideoStart: "video.start",
@@ -53,11 +51,15 @@ export type ClipboardChangePayload = {
 };
 
 export type TerminalCommandPayload = {
+  commandId: string;
   command: string;
   cwd: string;
   shell?: string;
   exitCode?: number;
   durationMs?: number;
+  interrupted?: boolean;
+  transcriptStartByte?: number;
+  transcriptEndByte?: number;
 };
 
 export type BrowserUrlPayload = { app: string; url: string; host?: string; title?: string };

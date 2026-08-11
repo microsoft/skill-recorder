@@ -195,6 +195,90 @@ test("discard removes the active session and skips post-processing", async () =>
   });
 });
 
+test("stop requires confirmation before interrupting a busy recorded terminal", async () => {
+  await withSessionsRoot(async () => {
+    let finishCalls = 0;
+    const controller = new RecorderController({
+      resolveConfig: () => ({ ...FULL_CAPTURE, video: false }),
+      buildCollectors: () => [],
+      terminalBusy: () => ({ busy: true, command: "npm test" }),
+      finishTerminal: async () => {
+        finishCalls += 1;
+      },
+      deleteSession: async () => undefined,
+    });
+
+    assert.equal((await controller.start()).ok, true);
+    assert.deepEqual(await controller.stop(), {
+      ok: false,
+      requiresTerminalConfirmation: true,
+      terminalCommand: "npm test",
+    });
+    assert.equal(controller.status().state, "recording");
+    assert.equal(controller.status().transition, "none");
+    assert.equal(finishCalls, 0);
+
+    assert.equal((await controller.stop(true)).ok, true);
+    assert.equal(controller.status().state, "idle");
+    assert.equal(finishCalls, 1);
+  });
+});
+
+test("terminal finalization failure keeps the recording active and is retryable", async () => {
+  await withSessionsRoot(async () => {
+    let failTerminal = true;
+    const controller = new RecorderController({
+      resolveConfig: () => ({ ...FULL_CAPTURE, video: false }),
+      buildCollectors: () => [],
+      terminalBusy: () => ({ busy: false, command: null }),
+      finishTerminal: async () => {
+        if (failTerminal) throw new Error("Transcript flush failed.");
+      },
+      deleteSession: async () => undefined,
+    });
+
+    assert.equal((await controller.start()).ok, true);
+    const failed = await controller.stop();
+    assert.equal(failed.ok, false);
+    assert.match(failed.error ?? "", /transcript flush failed/i);
+    assert.equal(controller.status().state, "recording");
+    assert.equal(controller.status().transition, "none");
+
+    failTerminal = false;
+    assert.equal((await controller.stop()).ok, true);
+    assert.equal(controller.status().state, "idle");
+  });
+});
+
+test("discard keeps session files until busy-terminal confirmation is forced", async () => {
+  await withSessionsRoot(async (root) => {
+    let deleted = false;
+    const controller = new RecorderController({
+      resolveConfig: () => ({ ...FULL_CAPTURE, video: false }),
+      buildCollectors: () => [],
+      terminalBusy: () => ({ busy: true, command: null }),
+      finishTerminal: async () => undefined,
+      deleteSession: async (id) => {
+        deleted = true;
+        await rm(path.join(root, id), { recursive: true });
+      },
+    });
+
+    const started = await controller.start();
+    assert.equal(started.ok, true);
+    const blocked = await controller.discard();
+    assert.equal(blocked.ok, false);
+    assert.equal(blocked.requiresTerminalConfirmation, true);
+    assert.equal(deleted, false);
+    assert.ok(started.sessionId);
+    await access(path.join(root, started.sessionId));
+
+    assert.equal((await controller.discard(true)).ok, true);
+    assert.equal(deleted, true);
+    await assert.rejects(access(path.join(root, started.sessionId)), { code: "ENOENT" });
+  });
+});
+
 test("failed discard retains and post-processes the finalized session", async () => {
   await withSessionsRoot(async () => {
     let processed = 0;

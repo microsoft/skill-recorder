@@ -33,6 +33,7 @@ export type SensitiveSource =
   | "window-title"
   | "url"
   | "command"
+  | "terminal-output"
   | "clipboard"
   | "note"
   | "narration"
@@ -326,6 +327,8 @@ export function sourceLabel(source: SensitiveSource): string {
       return "URL";
     case "command":
       return "Terminal command";
+    case "terminal-output":
+      return "Terminal output";
     case "clipboard":
       return "Clipboard";
     case "note":

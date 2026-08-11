@@ -35,7 +35,7 @@ const KICKOFF_PROMPT =
   "Read get_analysis (and get_timeline where the tool mapping needs evidence), then call " +
   "propose_plan with how you'll generalize this task, its fixed values (each an id + name + " +
   "value, referenced from steps as {{id}}), and its ordered steps (each a short title + " +
-  "description, with the native tool it uses). Stop after propose_plan so the user can review it.";
+  "description, with every concrete native tool it calls). Stop after propose_plan so the user can review it.";
 
 const CREATE_PROMPT =
   "The user reviewed and edited the plan below. Build the SKILL.md from EXACTLY this plan — do not " +
@@ -333,7 +333,7 @@ function renderPlanForPrompt(plan: SkillPlan): string {
     plan.steps.forEach((s, idx) => {
       const head = [s.title, s.text].filter(Boolean).join(" — ");
       const bits = [`${idx + 1}. (${s.kind}) ${head}`];
-      if (s.tool) bits.push(`[tool: ${s.tool}]`);
+      if (s.tools.length) bits.push(`[tools: ${s.tools.join(" → ")}]`);
       lines.push(bits.join(" "));
     });
   }

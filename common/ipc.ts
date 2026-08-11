@@ -11,6 +11,12 @@ import type {
   TargetPlacement,
 } from "./skill";
 import type { RecorderState } from "./types";
+import type {
+  SupportedShellId,
+  TerminalActionResult,
+  TerminalShellDescriptor,
+  TerminalStatus,
+} from "./terminal";
 
 export type {
   SensitiveCategory,
@@ -273,12 +279,16 @@ export interface StopResult {
   ok: boolean;
   sessionId?: string;
   sessionDir?: string;
+  requiresTerminalConfirmation?: boolean;
+  terminalCommand?: string;
   error?: string;
 }
 
 export interface DiscardResult {
   ok: boolean;
   sessionId?: string;
+  requiresTerminalConfirmation?: boolean;
+  terminalCommand?: string;
   error?: string;
 }
 
@@ -472,6 +482,17 @@ export const IPC = {
   cancelAutomation: "automation:cancel",
   revealAutomation: "automation:reveal",
   automationProgress: "automation:progress",
+  terminalOpen: "terminal:open",
+  terminalReady: "terminal:ready",
+  terminalStatus: "terminal:status",
+  terminalShells: "terminal:shells",
+  terminalSwitchShell: "terminal:switch-shell",
+  terminalInput: "terminal:input",
+  terminalResize: "terminal:resize",
+  terminalHide: "terminal:hide",
+  terminalStatusChanged: "terminal:status-changed",
+  terminalFinishConfirmationRequested: "terminal:finish-confirmation-requested",
+  terminalOutput: "terminal:output",
   openLibrary: "ui:open-library",
   closeLibrary: "ui:close-library",
   recordingControlsExpanded: "ui:recording-controls-expanded",
@@ -486,8 +507,8 @@ export interface SkillRecorderApi {
   confirmStart(): Promise<StartResult>;
   markRecordingPrivacyReviewed(): Promise<void>;
   onRecordingPrivacyWarningRequested(cb: () => void): () => void;
-  stop(): Promise<StopResult>;
-  discard(): Promise<DiscardResult>;
+  stop(forceTerminal?: boolean): Promise<StopResult>;
+  discard(forceTerminal?: boolean): Promise<DiscardResult>;
   setMicrophoneEnabled(enabled: boolean): Promise<MicrophoneResult>;
   setNarrationLanguage(language: NarrationLanguage): Promise<NarrationLanguageResult>;
   microphoneSettings(): Promise<MicrophoneSettingsStatus>;
@@ -510,6 +531,17 @@ export interface SkillRecorderApi {
    */
   copilotSignIn(): Promise<CopilotSignInResult>;
   onStatusChanged(cb: (status: RecorderStatus) => void): () => void;
+  openTerminal(): Promise<TerminalActionResult>;
+  terminalReady(): Promise<TerminalActionResult>;
+  terminalStatus(): Promise<TerminalStatus>;
+  terminalShells(): Promise<TerminalShellDescriptor[]>;
+  switchTerminalShell(shell: SupportedShellId): Promise<TerminalActionResult>;
+  writeTerminal(data: string): void;
+  resizeTerminal(columns: number, rows: number): void;
+  hideTerminal(): Promise<void>;
+  onTerminalStatusChanged(cb: (status: TerminalStatus) => void): () => void;
+  onTerminalFinishConfirmationRequested(cb: () => void): () => void;
+  onTerminalOutput(cb: (data: string) => void): () => void;
   narrationStatus(): Promise<NarrationStatus>;
   downloadNarrationModel(): Promise<NarrationActionResult>;
   transcribeNarration(sessionId: string): Promise<NarrationActionResult>;

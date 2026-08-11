@@ -9,6 +9,7 @@
 // pages these flows reference).
 
 import { EventType } from "../common/events";
+import type { TerminalCommandIndex } from "../common/terminal";
 import type { RecEvent, SessionMeta } from "../common/types";
 
 /** An event as authored in a scenario: just a time offset + type + payload. */
@@ -51,6 +52,13 @@ export interface Scenario {
   truth: string;
   /** Produce the ordered raw events for this recording. */
   build: () => RawEvent[];
+  /** Optional full recorded-terminal artifacts for output-aware describer evals. */
+  terminal?: {
+    commands: TerminalCommandIndex[];
+    output: { atMs: number; text: string }[];
+  };
+  /** Raw values that must not survive local redaction into the final analysis. */
+  sensitiveValues?: string[];
   rubric: Rubric;
 }
 
@@ -145,7 +153,13 @@ export const terminal = (
   atMs,
   type: EventType.TerminalCommand,
   source: "terminal",
-  payload: { command, cwd, shell: "zsh", ...extra },
+  payload: {
+    commandId: `cmd-${atMs}`,
+    command,
+    cwd,
+    shell: "zsh",
+    ...extra,
+  },
 });
 
 export const marker = (atMs: number, note: string): RawEvent => ({

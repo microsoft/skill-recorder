@@ -19,8 +19,10 @@ import os from "node:os";
 import path from "node:path";
 
 import type { Analysis } from "../common/analysis";
+import { TERMINAL_ARTIFACTS } from "../common/terminal";
 import { processSession } from "../electron/pipeline";
 import { Describer } from "../electron/describer/describer";
+import { buildRedactor, scanSession } from "../electron/sensitive/scanner";
 import { judgeAnalysis, type JudgeResult } from "./judge";
 import { makeSessionMeta, materializeEvents, type Scenario } from "./scenario";
 import { scenarios } from "./scenarios/index";
@@ -70,6 +72,30 @@ function materialize(root: string, scenario: Scenario): string {
     path.join(dir, "events.jsonl"),
     events.map((e) => JSON.stringify(e)).join("\n") + "\n",
   );
+  if (scenario.terminal) {
+    const terminalDir = path.join(dir, TERMINAL_ARTIFACTS.directory);
+    mkdirSync(terminalDir, { recursive: true });
+    const cast = [
+      JSON.stringify({
+        version: 2,
+        width: 100,
+        height: 30,
+        timestamp: Math.floor(startedAt / 1000),
+        env: { TERM: "xterm-256color", SHELL: "eval" },
+      }),
+      ...scenario.terminal.output.map((entry) =>
+        JSON.stringify([entry.atMs / 1000, "o", entry.text]),
+      ),
+    ];
+    writeFileSync(
+      path.join(terminalDir, TERMINAL_ARTIFACTS.transcript),
+      `${cast.join("\n")}\n`,
+    );
+    writeFileSync(
+      path.join(terminalDir, TERMINAL_ARTIFACTS.commands),
+      `${scenario.terminal.commands.map((entry) => JSON.stringify(entry)).join("\n")}\n`,
+    );
+  }
   return dir;
 }
 
@@ -109,11 +135,22 @@ async function main(): Promise<void> {
     try {
       const dir = materialize(root, scenario);
       await processSession(dir);
-      const analysis: Analysis = await describer.analyze(scenario.id);
+      const { values } = await scanSession(scenario.id);
+      const analysis: Analysis = await describer.analyze(scenario.id, {
+        redactText: buildRedactor(values),
+        frameRedactor: null,
+      });
       res.stepCount = analysis.steps.length;
       res.intent = analysis.intent;
       res.score = scoreAnalysis(analysis, scenario.rubric);
       res.ok = res.score.pass;
+      const leaked = scenario.sensitiveValues?.find((value) =>
+        JSON.stringify(analysis).includes(value),
+      );
+      if (leaked) {
+        res.ok = false;
+        res.error = "Sensitive terminal output reached the final analysis.";
+      }
       if (flags.judge) {
         try {
           res.judge = await judgeAnalysis(scenario, analysis, flags.model);

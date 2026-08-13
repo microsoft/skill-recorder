@@ -70,3 +70,38 @@ test("recorder fitting clamps content height and ignores invalid requests", () =
   fitRecorderHeight(win, 500);
   assert.deepEqual(win.size, size);
 });
+
+class FractionalScalingWindow implements RecorderWindowSizingTarget {
+  destroyed = false;
+  size: [number, number] = [401, 500];
+
+  isDestroyed(): boolean {
+    return this.destroyed;
+  }
+
+  getContentSize(): [number, number] {
+    return [this.size[0] - 2, this.size[1] - 31];
+  }
+
+  getSize(): [number, number] {
+    return [...this.size];
+  }
+
+  setSize(width: number, height: number): void {
+    // Simulate a Windows DIP <-> physical pixel round-trip under fractional
+    // display scaling, where the outer size reported back after setSize
+    // doesn't exactly match what was requested.
+    this.size = [width + 2, height];
+  }
+}
+
+test("recorder fitting stays bounded across repeated fractional-scale resizing", () => {
+  const win = new FractionalScalingWindow();
+
+  fitRecorderHeight(win, 600);
+  const widthAfterFirstFit = win.size[0];
+
+  for (let i = 0; i < 10; i++) fitRecorderHeight(win, 600);
+
+  assert.equal(win.size[0], widthAfterFirstFit);
+});

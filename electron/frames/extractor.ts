@@ -74,6 +74,8 @@ export interface CapturedFrameSample<T extends CapturedVideoFrame = CapturedVide
 const DEFAULTS = { dedupeThreshold: 8, maxFrames: 300, frameGridSec: 0.5 };
 const DEFAULT_WINDOW_FPS = 1;
 const DEFAULT_WINDOW_MAX_FRAMES = 24;
+/** Bounds how long a legacy system-ffmpeg extraction can run before it's treated as a failure. */
+const LEGACY_FFMPEG_TIMEOUT_MS = 60_000;
 
 export function nearestCapturedFrame<T extends CapturedVideoFrame>(
   frames: readonly T[],
@@ -355,7 +357,10 @@ export class FrameExtractor {
           "-q:v", "3",
           pattern,
         ],
-        { maxBuffer: 32 * 1024 * 1024 },
+        // A stalled ffmpeg (corrupt input, codec edge case, stuck pipe) would
+        // otherwise hang this promise forever; the timeout bounds that and
+        // routes into the same failure handling as any other ffmpeg error.
+        { maxBuffer: 32 * 1024 * 1024, timeout: LEGACY_FFMPEG_TIMEOUT_MS },
       );
     } catch (err) {
       log.warn("legacy probe window failed:", message(err));
@@ -402,7 +407,7 @@ export class FrameExtractor {
           "-q:v", "3",
           "-y", file,
         ],
-        { maxBuffer: 16 * 1024 * 1024 },
+        { maxBuffer: 16 * 1024 * 1024, timeout: LEGACY_FFMPEG_TIMEOUT_MS },
       );
     } catch (err) {
       log.warn(`legacy frame at ${offsetSec.toFixed(2)}s failed:`, message(err));

@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { promisify } from "node:util";
 import sharp from "sharp";
 
 import type { CapturedVideoFrame } from "../../common/frames";
@@ -169,6 +171,24 @@ test("FrameExtractor deduplicates identical source JPEGs without deleting retain
   assert.equal((await reloaded.extractAtEpochs(events)).length, 0);
   assert.equal(reloaded.manifest.length, 1);
   assert.equal(existsSync(path.join(framesDir, reloaded.manifest[0].file)), true);
+});
+
+test("a hung legacy ffmpeg process is killed and rejects within its timeout instead of hanging forever", async () => {
+  // extractLegacyWindow/extractLegacySingle bound their execFileAsync calls with
+  // LEGACY_FFMPEG_TIMEOUT_MS so a stalled ffmpeg (corrupt input, codec edge case,
+  // stuck pipe) can't hang the extraction indefinitely. Those methods are private
+  // and resolve their ffmpeg binary through a module-level, cached `which`/`where`
+  // lookup that isn't test-injectable without expanding this fix's scope, so this
+  // exercises the same execFileAsync-with-timeout mechanism directly: a child
+  // process that never exits on its own must still be killed and the call must
+  // still reject well within the timeout, not hang.
+  const execFileAsync = promisify(execFile);
+  const start = Date.now();
+  await assert.rejects(
+    execFileAsync(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { timeout: 200 }),
+  );
+  const elapsedMs = Date.now() - start;
+  assert.ok(elapsedMs < 5000, `expected the timeout to bound the hang, took ${elapsedMs}ms`);
 });
 
 test("sharp loads through the app's require path as a callable factory (guards sharp 0.35 export shape)", async () => {

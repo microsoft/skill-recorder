@@ -43,6 +43,12 @@ function automationsRoot(): string {
   return path.join(os.homedir(), ".copilot", "automations");
 }
 
+/** True when `dir` is `root` or nested inside it (so we can safely re-use it). */
+function isInside(root: string, dir: string): boolean {
+  const rel = path.relative(root, dir);
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
 interface LiveBuild extends BaseLive {
   sessionDir: string;
   architecture: SkillArchitecture;
@@ -217,10 +223,15 @@ export class AutomationBuilder extends AgentBuilder<LiveBuild> {
     const root = automationsRoot();
     const name = slugifySkillName(automation.name);
     const prior = loadPersistedAutomation(automation.sessionId);
+    const priorDir = prior?.exportedPath ? path.dirname(prior.exportedPath) : null;
     // Re-export to the same folder if this session already exported one; otherwise pick
-    // a fresh, non-colliding directory so we never clobber an unrelated automation.
-    let dir = prior?.exportedPath ? path.dirname(prior.exportedPath) : path.join(root, name);
-    if (!prior?.exportedPath && existsSync(dir)) {
+    // the same in-root folder. Persisted paths outside the automations root may come
+    // from a prior download/export or tampered session data and must not be reused.
+    // Otherwise pick a fresh, non-colliding directory so we never clobber an unrelated
+    // automation.
+    const reuse = priorDir !== null && isInside(root, priorDir);
+    let dir = reuse ? (priorDir as string) : path.join(root, name);
+    if (!reuse && existsSync(dir)) {
       let n = 2;
       while (existsSync(path.join(root, `${name}-${n}`))) n++;
       dir = path.join(root, `${name}-${n}`);

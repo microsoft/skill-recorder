@@ -19,6 +19,8 @@ export interface CaptureConfig {
   browserUrls: boolean;
   /** Low-fps screen video + extracted keyframes. */
   video: boolean;
+  /** Commands and output from the app-owned recorded terminal, when opened. */
+  terminal: boolean;
 }
 
 export type CaptureSourceKey = keyof CaptureConfig;
@@ -30,6 +32,7 @@ export const FULL_CAPTURE: CaptureConfig = {
   windowTitles: true,
   browserUrls: true,
   video: true,
+  terminal: true,
 };
 
 export interface CaptureSourceInfo {
@@ -48,4 +51,5 @@ export const CAPTURE_SOURCES: readonly CaptureSourceInfo[] = [
   { key: "windowTitles", label: "Window titles", tier: 1, cost: "One-time OS permission" },
   { key: "browserUrls", label: "Browser URLs", tier: 1, cost: "One-time OS permission" },
   { key: "video", label: "Screen video + keyframes", tier: 3, cost: "Screen-capture permission" },
+  { key: "terminal", label: "Recorded terminal", tier: 0, cost: "Only the app terminal" },
 ];

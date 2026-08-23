@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { copyFile, readFile, readdir } from "node:fs/promises";
+import { chmod, copyFile, readFile, readdir } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 
@@ -22,6 +22,21 @@ async function listUnpackedFiles(root) {
   return files;
 }
 
+async function ensureNodePtyHelpersAreExecutable(resources, platform) {
+  if (platform === "win32") return;
+  const nodePtyRoot = path.join(
+    resources,
+    "app.asar.unpacked",
+    "node_modules",
+    "node-pty",
+  );
+  for (const file of await listUnpackedFiles(nodePtyRoot)) {
+    if (path.basename(file) === "spawn-helper") {
+      await chmod(path.join(nodePtyRoot, file), 0o755);
+    }
+  }
+}
+
 export default async function verifyPackagedCompliance(context) {
   const platform = context.electronPlatformName;
   const productFilename = context.packager.appInfo.productFilename;
@@ -29,6 +44,8 @@ export default async function verifyPackagedCompliance(context) {
     platform === "darwin"
       ? path.join(context.appOutDir, `${productFilename}.app`, "Contents", "Resources")
       : path.join(context.appOutDir, "resources");
+
+  await ensureNodePtyHelpersAreExecutable(resources, platform);
 
   const compliance = path.join(resources, "compliance");
   const electronNotices = path.join(compliance, "electron");

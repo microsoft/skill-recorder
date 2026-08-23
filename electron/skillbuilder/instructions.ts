@@ -69,8 +69,13 @@ because the recording used it once.
   UI-only steps (a web app with no API and no CLI). Gate the shell with \`allowed-tools\`
   (e.g. \`Bash(gh *)\`) and write commands for the device OS (zsh/bash on macOS,
   PowerShell on Windows).
-- Record the chosen tool on each step (the step's \`tool\`), and set \`allowedTools\` to the
-  patterns the skill actually needs.
+- Record every concrete runtime tool a step needs in execution order (the step's \`tools\`).
+  Use runtime identifiers such as \`glob\`, \`workiq_search_chats\`, and \`bash\` here; do
+  not put permission patterns such as \`Glob\` or \`Bash(gh *)\` in \`tools\`.
+- Set \`allowedTools\` separately to the canonical permission patterns the skill actually
+  needs, such as \`Glob\` or \`Bash(gh *)\`.
+- Never use vague labels such as "reasoning", "filesystem", or "WorkIQ". If the prose says
+  a step locates a chat and then sends to it, list both the lookup and send tools.
 - Rely ONLY on the built-in tools and skills in the catalogue — never on a skill the
   user might have added.
 
@@ -83,8 +88,8 @@ Break the generalized procedure into ordered **steps**, each with a short **titl
 - **action** — changes the world: submits a form, sends a message, creates/edits/deletes a
   file or record, posts, pays. These are the risky surface — keep them explicit.
 
-Put the native tool each step uses in its \`tool\`. Order matters: interleave calculations and
-actions in the real sequence the task runs.
+Put every native tool each step uses in its \`tools\`, in call order. Order also matters
+between steps: interleave calculations and actions in the real sequence the task runs.
 
 ## Write a good SKILL.md (authoring principles)
 

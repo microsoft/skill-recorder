@@ -98,6 +98,137 @@ body[data-route="recording-controls"] #root {
   height: 100%;
 }
 
+body[data-route="terminal"] {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: #211f1e;
+  color: #f8f5ef;
+  user-select: text;
+}
+
+body[data-route="terminal"] #root {
+  width: 100%;
+  height: 100%;
+}
+
+.terminal-page {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  background: #211f1e;
+}
+
+.terminal-toolbar {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 9px 12px 9px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  background: #292624;
+  user-select: none;
+}
+
+.terminal-recording-state {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.terminal-recording-state > span:last-child {
+  min-width: 0;
+  display: grid;
+}
+
+.terminal-recording-state strong {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.terminal-recording-state small {
+  color: #aaa39d;
+  font-size: 10px;
+}
+
+.terminal-state-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #8e8883;
+  flex: none;
+}
+
+.terminal-state-dot.running,
+.terminal-state-dot.starting {
+  background: #e7b45f;
+}
+
+.terminal-state-dot.error {
+  background: #f47c68;
+}
+
+.terminal-state-dot.idle {
+  background: #63c59b;
+}
+
+.terminal-shell-picker {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #aaa39d;
+  font-size: 11px;
+  user-select: none;
+}
+
+.terminal-shell-picker select {
+  max-width: 190px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 7px;
+  padding: 5px 26px 5px 8px;
+  color: #f8f5ef;
+  background: #35312f;
+  font: 11px var(--sans);
+}
+
+.terminal-hide {
+  padding: 6px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #ddd7d1;
+  background: transparent;
+  font-size: 11px;
+}
+
+.terminal-hide:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.terminal-error {
+  padding: 7px 14px;
+  color: #ffd7cf;
+  background: rgba(244, 124, 104, 0.14);
+  border-bottom: 1px solid rgba(244, 124, 104, 0.35);
+  font-size: 11px;
+}
+
+.terminal-error:empty {
+  display: none;
+}
+
+.terminal-viewport {
+  min-width: 0;
+  min-height: 0;
+  padding: 8px 0 0 10px;
+  overflow: hidden;
+}
+
+.terminal-viewport .xterm {
+  height: 100%;
+}
+
 /* --- Shared primitives ---------------------------------------------------- */
 
 .eyebrow {
@@ -990,6 +1121,8 @@ button:focus-visible,
   .recording-bar button,
   .recording-discard-confirm,
   .recording-discard-confirm button,
+  .recording-terminal-confirm,
+  .recording-terminal-confirm button,
   .recording-microphone-menu,
   .recording-microphone-menu button {
     -webkit-app-region: no-drag;
@@ -1091,6 +1224,55 @@ button:focus-visible,
     background: var(--hud-hover);
   }
 
+  .recording-terminal {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 36px;
+    min-width: 89px;
+    padding: 0 10px;
+    border: 1px solid var(--hud-line);
+    border-radius: 10px;
+    background: var(--hud-surface-2);
+    color: var(--hud-muted);
+    font-size: 10.5px;
+    font-weight: 600;
+  }
+
+  .recording-terminal:not(:disabled):hover,
+  .recording-terminal.active {
+    border-color: var(--hud-line-strong);
+    color: var(--hud-text);
+    background: var(--hud-hover);
+  }
+
+  .recording-terminal.error {
+    border-color: color-mix(in srgb, var(--hud-accent) 55%, transparent);
+    color: var(--hud-accent);
+  }
+
+  .recording-terminal-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--hud-muted);
+  }
+
+  .recording-terminal-dot.running,
+  .recording-terminal-dot.starting {
+    background: var(--hud-warn);
+  }
+
+  .recording-terminal-dot.idle {
+    background: hsl(158, 62%, 52%);
+  }
+
+  .recording-terminal-dot.error {
+    background: var(--hud-accent);
+  }
+
   .recording-discard,
   .recording-done {
     height: 36px;
@@ -1125,12 +1307,14 @@ button:focus-visible,
   }
 
   .recording-bar button:disabled,
-  .recording-discard-confirm button:disabled {
+  .recording-discard-confirm button:disabled,
+  .recording-terminal-confirm button:disabled {
     opacity: 0.45;
   }
 
   .recording-bar button:focus-visible,
   .recording-discard-confirm button:focus-visible,
+  .recording-terminal-confirm button:focus-visible,
   .recording-microphone-menu button:focus-visible {
     outline: 2px solid var(--signal);
     outline-offset: 2px;
@@ -1145,7 +1329,8 @@ button:focus-visible,
     -webkit-app-region: drag;
   }
 
-  .recording-discard-confirm {
+  .recording-discard-confirm,
+  .recording-terminal-confirm {
     display: flex;
     flex-direction: column;
     gap: 13px;
@@ -1252,13 +1437,15 @@ button:focus-visible,
     color: var(--hud-accent);
   }
 
-  .recording-discard-confirm h2 {
+  .recording-discard-confirm h2,
+  .recording-terminal-confirm h2 {
     margin: 0 0 4px;
     font-size: 13px;
     font-weight: 650;
   }
 
-  .recording-discard-confirm p {
+  .recording-discard-confirm p,
+  .recording-terminal-confirm p {
     margin: 0;
     color: var(--hud-muted);
     font-size: 11.5px;
@@ -1272,7 +1459,8 @@ button:focus-visible,
   }
 
   .recording-keep,
-  .recording-confirm-discard {
+  .recording-confirm-discard,
+  .recording-close-terminal {
     min-height: 34px;
     padding: 0 12px;
     border-radius: 10px;
@@ -1300,6 +1488,15 @@ button:focus-visible,
     filter: brightness(0.92);
   }
 
+  .recording-close-terminal {
+    background: var(--signal);
+    color: var(--brand-fg);
+  }
+
+  .recording-close-terminal:hover {
+    background: var(--brand-hover);
+  }
+
   .recording-controls-live {
     position: absolute;
     width: 1px;
@@ -1319,6 +1516,7 @@ button:focus-visible,
 @media (prefers-reduced-motion: reduce) {
   .recording-live-dot,
   .recording-discard-confirm,
+  .recording-terminal-confirm,
   .recording-microphone-menu {
     animation: none;
   }

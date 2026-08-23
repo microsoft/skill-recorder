@@ -67,6 +67,7 @@ export default defineConfig({
                 "archiver",
                 "get-windows",
                 "koffi",
+                "node-pty",
                 "sharp",
                 "@huggingface/transformers",
                 "onnxruntime-node",

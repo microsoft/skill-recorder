@@ -5,6 +5,7 @@ import {
   shell,
   type OpenDialogOptions,
   type SaveDialogOptions,
+  type WebContents,
 } from "electron";
 import os from "node:os";
 import path from "node:path";
@@ -65,9 +66,20 @@ export function registerIpc(
   screens: ScreenSourceService,
   sensitiveModels: SensitiveModelManager,
   isRecordingStartPending: () => boolean,
+  canForceTerminalFinish: (sender: WebContents) => boolean,
 ): void {
-  ipcMain.handle(IPC.stop, () => recorder.stop());
-  ipcMain.handle(IPC.discard, () => recorder.discard());
+  ipcMain.handle(IPC.stop, (event, forceTerminal?: boolean) => {
+    if (forceTerminal === true && !canForceTerminalFinish(event.sender)) {
+      return { ok: false, error: "Terminal interruption confirmation is unavailable." };
+    }
+    return recorder.stop(forceTerminal === true);
+  });
+  ipcMain.handle(IPC.discard, (event, forceTerminal?: boolean) => {
+    if (forceTerminal === true && !canForceTerminalFinish(event.sender)) {
+      return { ok: false, error: "Terminal interruption confirmation is unavailable." };
+    }
+    return recorder.discard(forceTerminal === true);
+  });
   ipcMain.handle(IPC.microphone, (_event, enabled: boolean) =>
     recorder.setMicrophoneEnabled(enabled, microphones.effectiveDeviceId()),
   );

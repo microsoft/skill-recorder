@@ -25,6 +25,7 @@ function fallbackTrayIcon(): Electron.NativeImage {
 export function createTray(
   recorder: RecorderController,
   startRecording: () => Promise<unknown>,
+  stopRecording: () => Promise<unknown>,
   showRecorderWindow: () => void,
   showRecordingControls: () => void,
 ): Tray {
@@ -37,7 +38,7 @@ export function createTray(
       Menu.buildFromTemplate([
         {
           label: recording ? "Stop recording" : "Start recording",
-          click: () => void (recording ? recorder.stop() : startRecording()),
+          click: () => void (recording ? stopRecording() : startRecording()),
         },
         { type: "separator" },
         {

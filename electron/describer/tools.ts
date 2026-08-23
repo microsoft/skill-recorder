@@ -12,6 +12,10 @@ import { readEvents } from "../frames/correlate";
 import type { FrameExtractor } from "../frames/extractor";
 import type { FrameRedactor } from "../sensitive/frame-redact";
 import { createLogger } from "../logger";
+import {
+  listTerminalCommands,
+  searchTerminalOutput,
+} from "../terminal/artifacts";
 
 const log = createLogger("Describer/tools");
 
@@ -43,6 +47,7 @@ const MAX_IMAGES_PER_CALL = 6;
 const MAX_STR = 2000;
 /** Cap rows returned by get_events so an un-windowed call can't dump the whole log. */
 const MAX_EVENTS = 500;
+const MAX_TERMINAL_COMMANDS = 50;
 
 const truncate = (v: unknown): unknown =>
   typeof v === "string" && v.length > MAX_STR ? v.slice(0, MAX_STR) + "…[truncated]" : v;
@@ -179,6 +184,98 @@ export function createDescriberTools(ctx: ToolContext): Tool[] {
           2,
         ),
       );
+    },
+  };
+
+  const listTerminalCommandsTool: Tool = {
+    name: "list_terminal_commands",
+    description:
+      "List indexed commands from the app-owned recorded terminal with command ids, timing, cwd, shell, exit status, interruption state and transcript ranges. Output is local-redacted. Use cursor/limit to page.",
+    parameters: {
+      type: "object",
+      properties: {
+        cursor: { type: "number", description: "Zero-based command cursor." },
+        limit: { type: "number", description: "Rows to return, maximum 50." },
+        fromMs: { type: "number", description: "Optional command start-time lower bound." },
+        toMs: { type: "number", description: "Optional command start-time upper bound." },
+      },
+      additionalProperties: false,
+    },
+    handler: async (raw) => {
+      const args = (raw ?? {}) as {
+        cursor?: number;
+        limit?: number;
+        fromMs?: number;
+        toMs?: number;
+      };
+      progress("Reading terminal command index…");
+      const page = await listTerminalCommands(
+        sessionDir,
+        args.cursor ?? 0,
+        Math.min(
+          Math.max(Math.trunc(args.limit ?? MAX_TERMINAL_COMMANDS), 1),
+          MAX_TERMINAL_COMMANDS,
+        ),
+      );
+      const commands = page.commands
+        .filter(
+          (command) =>
+            (args.fromMs == null || command.startAtMs >= args.fromMs) &&
+            (args.toMs == null || command.startAtMs <= args.toMs),
+        )
+        .map((command) => ({
+          ...command,
+          command: truncate(command.command),
+          cwd: truncate(command.cwd),
+        }));
+      return redact(
+        JSON.stringify(
+          {
+            count: commands.length,
+            nextCursor: page.nextCursor,
+            commands,
+          },
+          null,
+          2,
+        ),
+      );
+    },
+  };
+
+  const searchTerminalOutputTool: Tool = {
+    name: "search_terminal_output",
+    description:
+      "Search the full local recorded-terminal transcript by literal query, command id, or time window. Returns bounded, paginated, locally redacted excerpts only; it never sends the full transcript.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Case-insensitive literal text to find." },
+        commandId: { type: "string", description: "Restrict output to one indexed command." },
+        fromMs: { type: "number", description: "Output window start." },
+        toMs: { type: "number", description: "Output window end." },
+        cursor: { type: "number", description: "Cursor from a previous page." },
+        limit: { type: "number", description: "Excerpt count, maximum 50." },
+      },
+      additionalProperties: false,
+    },
+    handler: async (raw) => {
+      const args = (raw ?? {}) as {
+        query?: string;
+        commandId?: string;
+        fromMs?: number;
+        toMs?: number;
+        cursor?: number;
+        limit?: number;
+      };
+      progress("Searching recorded terminal output…");
+      try {
+        const page = await searchTerminalOutput(sessionDir, args);
+        return redact(JSON.stringify(page, null, 2));
+      } catch (error) {
+        return `Could not search terminal output: ${
+          error instanceof Error ? error.message : String(error)
+        }`;
+      }
     },
   };
 
@@ -417,5 +514,14 @@ export function createDescriberTools(ctx: ToolContext): Tool[] {
     },
   };
 
-  return [getTimeline, getEvents, getNarration, listFrames, getFrames, submitAnalysis];
+  return [
+    getTimeline,
+    getEvents,
+    listTerminalCommandsTool,
+    searchTerminalOutputTool,
+    getNarration,
+    listFrames,
+    getFrames,
+    submitAnalysis,
+  ];
 }

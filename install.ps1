@@ -718,7 +718,10 @@ if (Test-Path -LiteralPath $sourceDirectory -PathType Container) {
         ) `
         -Description "lockfile portability validation"
 
-      Write-Step "Installing lockfile-pinned dependencies through the configured npm registry."
+      Write-Step (
+        "Installing lockfile-pinned dependencies through the configured npm registry. " +
+        "Deprecation notices from transitive tooling do not by themselves mean installation failed."
+      )
       $registryOutput = @(& $runtime.Npm config get registry)
       $effectiveRegistry = "the configured npm registry"
       if ($LASTEXITCODE -eq 0 -and $registryOutput.Count -gt 0) {

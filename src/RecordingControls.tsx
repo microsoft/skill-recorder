@@ -4,6 +4,7 @@ import type {
   MicrophoneSettingsStatus,
   RecorderStatus,
 } from "../common/ipc";
+import type { TerminalStatus } from "../common/terminal";
 import {
   DEFAULT_NARRATION_LANGUAGE,
   narrationLanguageLabel,
@@ -20,6 +21,9 @@ export function RecordingControls() {
   const [microphonePending, setMicrophonePending] = useState(false);
   const [devicePending, setDevicePending] = useState(false);
   const [finishPending, setFinishPending] = useState<"done" | "discard" | null>(null);
+  const [terminalStatus, setTerminalStatus] = useState<TerminalStatus | null>(null);
+  const [terminalPending, setTerminalPending] = useState(false);
+  const [terminalConfirm, setTerminalConfirm] = useState<"done" | "discard" | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const keepRecordingRef = useRef<HTMLButtonElement>(null);
   const microphoneControlRef = useRef<HTMLDivElement>(null);
@@ -28,12 +32,23 @@ export function RecordingControls() {
   useEffect(() => {
     void window.skillRecorder.status().then(setStatus);
     void window.skillRecorder.microphoneSettings().then(setMicrophoneSettings);
+    void window.skillRecorder.terminalStatus().then(setTerminalStatus);
     const offStatus = window.skillRecorder.onStatusChanged(setStatus);
     const offMicrophones =
       window.skillRecorder.onMicrophoneSettingsChanged(setMicrophoneSettings);
+    const offTerminal =
+      window.skillRecorder.onTerminalStatusChanged(setTerminalStatus);
+    const offTerminalFinish =
+      window.skillRecorder.onTerminalFinishConfirmationRequested(() => {
+        setConfirmDiscard(false);
+        setShowMicrophoneMenu(false);
+        setTerminalConfirm("done");
+      });
     return () => {
       offStatus();
       offMicrophones();
+      offTerminal();
+      offTerminalFinish();
     };
   }, []);
 
@@ -57,13 +72,15 @@ export function RecordingControls() {
     setMicrophonePending(false);
     setDevicePending(false);
     setFinishPending(null);
+    setTerminalConfirm(null);
+    setTerminalPending(false);
   }, [confirmDiscard, recording, showMicrophoneMenu]);
 
   useEffect(() => {
     void window.skillRecorder.setRecordingControlsExpanded(
-      confirmDiscard || showMicrophoneMenu,
+      confirmDiscard || showMicrophoneMenu || terminalConfirm !== null,
     );
-  }, [confirmDiscard, showMicrophoneMenu]);
+  }, [confirmDiscard, showMicrophoneMenu, terminalConfirm]);
 
   useEffect(() => {
     if (!confirmDiscard) return;
@@ -140,26 +157,47 @@ export function RecordingControls() {
     setDevicePending(false);
   }, []);
 
-  const done = useCallback(async () => {
+  const done = useCallback(async (forceTerminal = false) => {
     setFinishPending("done");
     setActionError(null);
-    const result = await window.skillRecorder.stop();
+    const result = await window.skillRecorder.stop(forceTerminal);
+    if (result.requiresTerminalConfirmation) {
+      setTerminalConfirm("done");
+      setFinishPending(null);
+      return;
+    }
     if (!result.ok) {
       setActionError(result.error ?? "Could not stop the recording.");
       setFinishPending(null);
     }
   }, []);
 
-  const discard = useCallback(async () => {
+  const discard = useCallback(async (forceTerminal = false) => {
     setFinishPending("discard");
     setActionError(null);
-    const result = await window.skillRecorder.discard();
+    const result = await window.skillRecorder.discard(forceTerminal);
+    if (result.requiresTerminalConfirmation) {
+      setConfirmDiscard(false);
+      setTerminalConfirm("discard");
+      setFinishPending(null);
+      return;
+    }
     if (!result.ok) {
       const error = result.error ?? "Could not discard the recording.";
       setActionError(error);
       setFinishPending(null);
       window.alert(error);
     }
+  }, []);
+
+  const openTerminal = useCallback(async () => {
+    setTerminalPending(true);
+    setActionError(null);
+    setConfirmDiscard(false);
+    setShowMicrophoneMenu(false);
+    const result = await window.skillRecorder.openTerminal();
+    if (!result.ok) setActionError(result.error);
+    setTerminalPending(false);
   }, []);
 
   const transitionBusy = status?.transition !== "none";
@@ -205,7 +243,9 @@ export function RecordingControls() {
 
   return (
     <div
-      className={`recording-controls ${confirmDiscard ? "expanded" : ""}`}
+      className={`recording-controls ${
+        confirmDiscard || showMicrophoneMenu || terminalConfirm ? "expanded" : ""
+      }`}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && confirmDiscard) setConfirmDiscard(false);
       }}
@@ -221,7 +261,7 @@ export function RecordingControls() {
           <div>
             <h2 id="recording-discard-title">Discard this recording?</h2>
             <p id="recording-discard-description">
-              Screen video, activity, and recorded voice segments will be permanently deleted.
+              Screen video, activity, recorded-terminal output, and voice segments will be permanently deleted.
             </p>
           </div>
           <div className="recording-discard-actions">
@@ -239,6 +279,48 @@ export function RecordingControls() {
               onClick={() => void discard()}
             >
               {finishPending === "discard" ? "Discarding..." : "Discard recording"}
+            </button>
+          </div>
+        </section>
+      )}
+
+      {terminalConfirm && (
+        <section
+          className="recording-terminal-confirm"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="recording-terminal-title"
+          aria-describedby="recording-terminal-description"
+        >
+          <div>
+            <h2 id="recording-terminal-title">A terminal command is still running</h2>
+            <p id="recording-terminal-description">
+              Closing the recording will stop the command and save its output as interrupted.
+            </p>
+          </div>
+          <div className="recording-discard-actions">
+            <button
+              className="recording-keep"
+              onClick={() => setTerminalConfirm(null)}
+            >
+              Keep recording
+            </button>
+            <button
+              className={
+                terminalConfirm === "discard"
+                  ? "recording-confirm-discard"
+                  : "recording-close-terminal"
+              }
+              onClick={() => {
+                const intent = terminalConfirm;
+                setTerminalConfirm(null);
+                if (intent === "discard") void discard(true);
+                else void done(true);
+              }}
+            >
+              {terminalConfirm === "discard"
+                ? "Close terminal and discard"
+                : "Close terminal and save"}
             </button>
           </div>
         </section>
@@ -286,6 +368,7 @@ export function RecordingControls() {
               );
             })}
           </div>
+
           {error && (
             <p
               className={
@@ -366,6 +449,31 @@ export function RecordingControls() {
           </div>
 
           <button
+            className={`recording-terminal ${
+              terminalStatus?.state !== "closed" ? "active" : ""
+            } ${terminalStatus?.state === "error" ? "error" : ""}`}
+            disabled={lifecycleBusy || terminalPending}
+            aria-label={
+              terminalStatus?.state === "closed"
+                ? "Open recorded terminal"
+                : `Focus recorded terminal. ${terminalStatus?.state ?? ""}`
+            }
+            title="Open a terminal captured only with this recording"
+            onClick={() => void openTerminal()}
+          >
+            <TerminalIcon />
+            <span>{terminalPending ? "Opening" : "Terminal"}</span>
+            {terminalStatus?.state !== "closed" && (
+              <span
+                className={`recording-terminal-dot ${
+                  terminalStatus?.state ?? "closed"
+                }`}
+                aria-hidden
+              />
+            )}
+          </button>
+
+          <button
             className="recording-discard"
             disabled={lifecycleBusy}
             onClick={() => {
@@ -376,7 +484,7 @@ export function RecordingControls() {
           >
             Discard
           </button>
-          <button className="recording-done" disabled={lifecycleBusy} onClick={() => void done()}>
+          <button className="recording-done" disabled={lifecycleBusy} onClick={() => void done(false)}>
             {finishPending === "done" || status?.transition === "stopping" ? "Saving..." : "Done"}
           </button>
         </div>
@@ -406,6 +514,15 @@ function ChevronIcon({ open }: { open: boolean }) {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+    </svg>
+  );
+}
+
+function TerminalIcon() {
+  return (
+    <svg width="17" height="16" viewBox="0 0 18 16" fill="none" aria-hidden>
+      <rect x="1.5" y="2" width="15" height="12" rx="2" stroke="currentColor" strokeWidth="1.4" />
+      <path d="m4.5 6 2 2-2 2M9 10h4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

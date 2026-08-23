@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+
+import AdmZip from "adm-zip";
 
 import { writeDebugBundle } from "./debug-bundle";
 
@@ -32,9 +33,7 @@ test("writeDebugBundle zips the whole session under session/ next to debug-info.
       "output should start with the ZIP local-file-header magic",
     );
 
-    const names = execFileSync("unzip", ["-Z1", dest], { encoding: "utf8" })
-      .split(/\r?\n/)
-      .filter(Boolean);
+    const names = new AdmZip(dest).getEntries().map((entry) => entry.entryName);
     assert.ok(names.includes("debug-info.json"), "carries a top-level debug-info.json");
     assert.ok(
       names.includes("session/session.json"),

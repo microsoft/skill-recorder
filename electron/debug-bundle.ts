@@ -1,7 +1,7 @@
 import { createWriteStream } from "node:fs";
 import os from "node:os";
 
-import archiver from "archiver";
+import { ZipArchive } from "archiver";
 import { app } from "electron";
 
 import type { DoctorReport } from "../common/ipc";
@@ -80,7 +80,7 @@ export function writeDebugBundle(
     };
 
     const output = createWriteStream(destZipPath);
-    const archive = archiver("zip", { zlib: { level: 6 } });
+    const archive = new ZipArchive({ zlib: { level: 6 } });
 
     output.on("close", () => done());
     output.on("error", (err) => done(err));

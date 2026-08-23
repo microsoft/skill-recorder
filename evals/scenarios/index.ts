@@ -8,6 +8,11 @@ import { releaseNotes } from "./release-notes";
 import { researchCompile } from "./research-compile";
 import { webToSpreadsheet } from "./web-to-spreadsheet";
 import { windowsDeploy } from "./windows-deploy";
+import {
+  terminalFailureRecovery,
+  terminalOutputRequired,
+  terminalSensitiveOutput,
+} from "./terminal-output";
 
 /** All eval scenarios, in run order. */
 export const scenarios: Scenario[] = [
@@ -23,4 +28,7 @@ export const scenarios: Scenario[] = [
   leadToCrm,
   // Windows-shaped capture (win32 app names + browser.url + pwsh):
   windowsDeploy,
+  terminalOutputRequired,
+  terminalFailureRecovery,
+  terminalSensitiveOutput,
 ];

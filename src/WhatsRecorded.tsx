@@ -103,7 +103,11 @@ export function WhatsRecorded({
             <li>Which apps you switch to, and their window and document titles.</li>
             <li>Web addresses of the pages you open.</li>
             <li>A short preview of text you copy, up to 120 characters.</li>
-            <li>A silent video of your screen at a low frame rate.</li>
+            <li>A silent video of the screen you select, at a low frame rate.</li>
+            <li>
+              If you open the recorded terminal from the floating bar: its commands, working
+              folders, exit status, timing, and complete terminal output.
+            </li>
           </ul>
           <p className="sheet-caution">
             Do not type, paste, display, copy, or narrate passwords, access tokens, API keys,
@@ -111,6 +115,21 @@ export function WhatsRecorded({
             on screen can appear in the recording, and copied text previews and narration are
             captured too.
           </p>
+        </section>
+
+        <section className="sheet-block">
+          <h3>Recorded terminal (only if you open it)</h3>
+          <ul>
+            <li>Only the terminal opened from the floating recording bar is captured.</li>
+            <li>
+              Its full output stays with this recording and has no app-imposed size limit, so
+              long-running or noisy commands can make the saved recording much larger.
+            </li>
+            <li>
+              Skill Recorder does not edit shell profiles, install global hooks, watch existing
+              terminals, or keep recording commands after this recording ends.
+            </li>
+          </ul>
         </section>
 
         <section className="sheet-block">
@@ -153,8 +172,9 @@ export function WhatsRecorded({
             <li>Nothing leaves your computer while you record.</li>
             <li>
               When you choose Analyze, the event timeline (window and document titles, URLs, and
-              clipboard previews), plus screen images and narration text if recorded, are sent to
-              GitHub&apos;s cloud service and processed by GitHub Copilot.
+              clipboard previews and recorded-terminal commands), plus screen images, narration
+              text, and only the bounded terminal-output excerpts needed for analysis, are sent
+              to GitHub&apos;s cloud service and processed by GitHub Copilot.
             </li>
             <li>
               By default, before anything is sent, this computer hides sensitive details like
@@ -193,8 +213,8 @@ export function WhatsRecorded({
             <>
               <ul>
                 <li>
-                  It hides sensitive details like passwords, keys, emails, and card or ID numbers,
-                  both in the text that is sent (including narration) and in your screen images.
+                  It hides sensitive details like                   passwords, keys, emails, and card or ID numbers, both in the text that is sent
+                  (including narration and terminal output) and in your screen images.
                 </li>
                 <li>
                   Turning it off sends your recording as recorded. That can make the analysis more
@@ -223,6 +243,7 @@ export function WhatsRecorded({
           <h3>What it never does</h3>
           <ul>
             <li>It does not log your keystrokes.</li>
+            <li>It does not capture commands from Terminal, PowerShell, or other terminal apps.</li>
             <li>It only captures while a recording is running. Nothing runs in the background.</li>
           </ul>
         </section>

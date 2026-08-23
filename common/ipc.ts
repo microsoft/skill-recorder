@@ -2,6 +2,7 @@ import type { Analysis, AnalysisFeedback, AnalysisStep, Confidence } from "./ana
 import type { AutomationPlan, BuiltAutomation } from "./automation";
 import type { MicrophoneDevice } from "./microphone";
 import type { NarrationLanguage } from "./narration";
+import type { ScreenSource } from "./screen";
 import type { SensitiveReport } from "./sensitive";
 import type {
   BuiltSkill,
@@ -10,6 +11,12 @@ import type {
   TargetPlacement,
 } from "./skill";
 import type { RecorderState } from "./types";
+import type {
+  SupportedShellId,
+  TerminalActionResult,
+  TerminalShellDescriptor,
+  TerminalStatus,
+} from "./terminal";
 
 export type {
   SensitiveCategory,
@@ -262,18 +269,26 @@ export interface StartOptions {
   narrationLanguage?: NarrationLanguage;
   /** Device selected for the initial narration segment; defaults to the OS input. */
   microphoneDeviceId?: string;
+  /** Electron desktop-capture source selected for this recording. */
+  screenSourceId?: string;
+  /** Stable OS display identity used to validate the final Electron source. */
+  screenDisplayId?: string;
 }
 
 export interface StopResult {
   ok: boolean;
   sessionId?: string;
   sessionDir?: string;
+  requiresTerminalConfirmation?: boolean;
+  terminalCommand?: string;
   error?: string;
 }
 
 export interface DiscardResult {
   ok: boolean;
   sessionId?: string;
+  requiresTerminalConfirmation?: boolean;
+  terminalCommand?: string;
   error?: string;
 }
 
@@ -310,6 +325,26 @@ export interface MicrophoneSettingsStatus {
 export interface MicrophoneSettingsResult {
   ok: boolean;
   status: MicrophoneSettingsStatus;
+  error?: string;
+}
+
+/** Shared pre-recording screen preference and current display catalog. */
+export interface ScreenSettingsStatus {
+  screens: ScreenSource[];
+  /** The preferred source, retained even while its display is disconnected. */
+  preferredSourceId: string;
+  preferredSourceLabel: string;
+  /** The source that will actually be recorded in the next session. */
+  selectedSourceId: string;
+  selectedSourceLabel: string;
+  preferredSourceUnavailable: boolean;
+  fallback: string | null;
+  error: string | null;
+}
+
+export interface ScreenSettingsResult {
+  ok: boolean;
+  status: ScreenSettingsStatus;
   error?: string;
 }
 
@@ -407,6 +442,9 @@ export const IPC = {
   microphoneNarration: "microphone:narration",
   microphoneDevice: "microphone:device",
   microphoneSettingsChanged: "microphone:settings-changed",
+  screenSettings: "screen:settings",
+  screenSource: "screen:source",
+  screenSettingsChanged: "screen:settings-changed",
   status: "recorder:status",
   marker: "recorder:marker",
   doctor: "doctor:check",
@@ -444,6 +482,17 @@ export const IPC = {
   cancelAutomation: "automation:cancel",
   revealAutomation: "automation:reveal",
   automationProgress: "automation:progress",
+  terminalOpen: "terminal:open",
+  terminalReady: "terminal:ready",
+  terminalStatus: "terminal:status",
+  terminalShells: "terminal:shells",
+  terminalSwitchShell: "terminal:switch-shell",
+  terminalInput: "terminal:input",
+  terminalResize: "terminal:resize",
+  terminalHide: "terminal:hide",
+  terminalStatusChanged: "terminal:status-changed",
+  terminalFinishConfirmationRequested: "terminal:finish-confirmation-requested",
+  terminalOutput: "terminal:output",
   openLibrary: "ui:open-library",
   closeLibrary: "ui:close-library",
   recordingControlsExpanded: "ui:recording-controls-expanded",
@@ -458,8 +507,8 @@ export interface SkillRecorderApi {
   confirmStart(): Promise<StartResult>;
   markRecordingPrivacyReviewed(): Promise<void>;
   onRecordingPrivacyWarningRequested(cb: () => void): () => void;
-  stop(): Promise<StopResult>;
-  discard(): Promise<DiscardResult>;
+  stop(forceTerminal?: boolean): Promise<StopResult>;
+  discard(forceTerminal?: boolean): Promise<DiscardResult>;
   setMicrophoneEnabled(enabled: boolean): Promise<MicrophoneResult>;
   setNarrationLanguage(language: NarrationLanguage): Promise<NarrationLanguageResult>;
   microphoneSettings(): Promise<MicrophoneSettingsStatus>;
@@ -467,6 +516,11 @@ export interface SkillRecorderApi {
   selectMicrophone(deviceId: string): Promise<MicrophoneSettingsResult>;
   onMicrophoneSettingsChanged(
     cb: (status: MicrophoneSettingsStatus) => void,
+  ): () => void;
+  screenSettings(): Promise<ScreenSettingsStatus>;
+  selectScreen(sourceId: string): Promise<ScreenSettingsResult>;
+  onScreenSettingsChanged(
+    cb: (status: ScreenSettingsStatus) => void,
   ): () => void;
   status(): Promise<RecorderStatus>;
   marker(note: string): Promise<MarkerResult>;
@@ -477,6 +531,17 @@ export interface SkillRecorderApi {
    */
   copilotSignIn(): Promise<CopilotSignInResult>;
   onStatusChanged(cb: (status: RecorderStatus) => void): () => void;
+  openTerminal(): Promise<TerminalActionResult>;
+  terminalReady(): Promise<TerminalActionResult>;
+  terminalStatus(): Promise<TerminalStatus>;
+  terminalShells(): Promise<TerminalShellDescriptor[]>;
+  switchTerminalShell(shell: SupportedShellId): Promise<TerminalActionResult>;
+  writeTerminal(data: string): void;
+  resizeTerminal(columns: number, rows: number): void;
+  hideTerminal(): Promise<void>;
+  onTerminalStatusChanged(cb: (status: TerminalStatus) => void): () => void;
+  onTerminalFinishConfirmationRequested(cb: () => void): () => void;
+  onTerminalOutput(cb: (data: string) => void): () => void;
   narrationStatus(): Promise<NarrationStatus>;
   downloadNarrationModel(): Promise<NarrationActionResult>;
   transcribeNarration(sessionId: string): Promise<NarrationActionResult>;

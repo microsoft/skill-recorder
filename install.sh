@@ -292,7 +292,7 @@ build_source_install() {
   npm_version="$("$NPM" --version)" || die "Could not determine the bundled npm version."
   "$NODE" "scripts/check-lockfile-portability.mjs" --npm-version "$npm_version"
 
-  info "Installing lockfile-pinned dependencies through the configured npm registry."
+  info "Installing lockfile-pinned dependencies through the configured npm registry. Deprecation notices from transitive tooling do not by themselves mean installation failed."
   local effective_registry
   effective_registry="$("$NPM" config get registry 2>/dev/null | tail -n 1 | tr -d '\r')" ||
     effective_registry=""

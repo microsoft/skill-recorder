@@ -9,6 +9,7 @@ import {
   initialRecordingControlsBounds,
   resizeRecordingControlsBounds,
 } from "./recording-controls-bounds";
+import { RECORDER_WINDOW_WIDTH } from "./recorder-window-sizing";
 import { windowIcon } from "./icons";
 export { fitRecorderHeight } from "./recorder-window-sizing";
 
@@ -17,7 +18,7 @@ const dirname = path.dirname(fileURLToPath(import.meta.url));
 /** Compact recording HUD — fixed width; height auto-fits its content (see
  *  `fitRecorderHeight`). The initial height is a sensible first paint before the
  *  renderer reports its true content height. */
-const RECORDER = { width: 400, height: 500 };
+const RECORDER = { width: RECORDER_WINDOW_WIDTH, height: 500 };
 /** Library sizing bounds; actual width adapts to the space beside the recorder. */
 const LIBRARY = { desiredWidth: 1140, minWidth: 720, floorWidth: 520, maxHeight: 820 };
 const MARGIN = 12;
@@ -83,6 +84,7 @@ export function createRecordingControlsWindow(): BrowserWindow {
     const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
     bounds = initialRecordingControlsBounds(display.workArea);
   }
+
   const win = new BrowserWindow({
     ...bounds,
     show: false,
@@ -118,6 +120,34 @@ export function createRecordingControlsWindow(): BrowserWindow {
   win.on("resize", rememberPosition);
   rememberPosition();
   loadRoute(win, "recording-controls");
+  return win;
+}
+
+/** Resizable app-owned terminal; the PTY remains in the main process. */
+export function createTerminalWindow(): BrowserWindow {
+  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  const width = Math.min(960, Math.max(640, display.workArea.width - 80));
+  const height = Math.min(640, Math.max(420, display.workArea.height - 100));
+  const win = new BrowserWindow({
+    width,
+    height,
+    minWidth: 560,
+    minHeight: 360,
+    show: false,
+    title: "Skill Recorder: Recorded terminal",
+    icon: windowIcon(),
+    backgroundColor: "#211f1e",
+    webPreferences: {
+      preload: path.join(dirname, "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      backgroundThrottling: false,
+    },
+  });
+  registerDevelopmentDevToolsShortcut(win);
+  win.setContentProtection(true);
+  loadRoute(win, "terminal");
   return win;
 }
 

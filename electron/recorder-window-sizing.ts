@@ -1,20 +1,18 @@
 const RECORDER_MIN_HEIGHT = 320;
 const RECORDER_MAX_HEIGHT = 720;
+export const RECORDER_WINDOW_WIDTH = 400;
 
 export interface RecorderWindowSizingTarget {
   isDestroyed(): boolean;
   getContentSize(): number[];
   getSize(): number[];
-  isResizable(): boolean;
-  setResizable(resizable: boolean): void;
   setSize(width: number, height: number, animate?: boolean): void;
 }
 
 /**
- * Fit the recorder to its rendered content while preserving its fixed outer width.
- * Windows changes the non-client frame thickness when resizability is toggled, so
- * feeding a content width measured before that toggle into `setContentSize` grows
- * the outer window on every ResizeObserver callback.
+ * Fit the recorder to its rendered content while enforcing its fixed outer width.
+ * Programmatic setSize works on non-resizable BrowserWindows; toggling resizability
+ * changes the Windows frame width and creates a resize-observer feedback loop.
  */
 export function fitRecorderHeight(
   win: RecorderWindowSizingTarget,
@@ -25,16 +23,12 @@ export function fitRecorderHeight(
   const targetContentHeight = Math.round(
     Math.max(RECORDER_MIN_HEIGHT, Math.min(RECORDER_MAX_HEIGHT, contentHeight)),
   );
-  const [, currentContentHeight] = win.getContentSize();
-  if (Math.abs(currentContentHeight - targetContentHeight) < 1) return;
-
   const [outerWidth, outerHeight] = win.getSize();
+  const [, currentContentHeight] = win.getContentSize();
+  const heightMatches =
+    Math.abs(currentContentHeight - targetContentHeight) < 1;
+  if (heightMatches && outerWidth === RECORDER_WINDOW_WIDTH) return;
+
   const targetOuterHeight = outerHeight + targetContentHeight - currentContentHeight;
-  const wasResizable = win.isResizable();
-  if (!wasResizable) win.setResizable(true);
-  try {
-    win.setSize(outerWidth, targetOuterHeight);
-  } finally {
-    if (!wasResizable && !win.isDestroyed()) win.setResizable(false);
-  }
+  win.setSize(RECORDER_WINDOW_WIDTH, targetOuterHeight);
 }

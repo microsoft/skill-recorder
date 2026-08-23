@@ -152,7 +152,11 @@ export class VideoRecorder {
   };
 
   /** Begin capturing into `<sessionDir>/video.webm`. Never throws. */
-  async start(sessionDir: string): Promise<void> {
+  async start(
+    sessionDir: string,
+    sourceId?: string,
+    displayId?: string,
+  ): Promise<void> {
     try {
       const sources = await desktopCapturer.getSources({
         types: ["screen"],
@@ -162,7 +166,15 @@ export class VideoRecorder {
         log.warn("no screen source available; skipping video");
         return;
       }
-      const source = sources[0];
+      const source = displayId
+        ? sources.find((candidate) => candidate.display_id === displayId)
+        : sourceId
+          ? sources.find((candidate) => candidate.id === sourceId)
+          : sources[0];
+      if (!source) {
+        log.warn("selected screen source is unavailable; skipping video");
+        return;
+      }
 
       this.dir = sessionDir;
       this.file = path.join(sessionDir, "video.webm");

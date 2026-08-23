@@ -121,6 +121,32 @@ test("scanSession leaves personal names alone (NER layer removed)", async () => 
     // is neither detected nor added to the redaction values (secrets + PII only).
     assert.ok(!values.includes(PERSON), "a bare name must not be a redaction value");
   });
+
+});
+
+test("scanSession streams and scans terminal output split across PTY chunks", async () => {
+  await withSessionRoot(async (root) => {
+    const id = "terminal-output";
+    const dir = path.join(root, id);
+    await mkdir(path.join(dir, "terminal"), { recursive: true });
+    await writeFile(
+      path.join(dir, "session.json"),
+      JSON.stringify({ id, startedAt: STARTED_AT, stoppedAt: STARTED_AT + 2_000 }),
+    );
+    await writeFile(path.join(dir, "events.jsonl"), "");
+    const cast = [
+      JSON.stringify({ version: 2, width: 80, height: 24, timestamp: 10 }),
+      JSON.stringify([0.5, "o", `token: ${GH_TOKEN.slice(0, 20)}`]),
+      JSON.stringify([0.6, "o", `${GH_TOKEN.slice(20)}\r\n`]),
+    ].join("\n");
+    await writeFile(path.join(dir, "terminal", "output.cast"), `${cast}\n`);
+
+    const { report, values } = await scanSession(id);
+    assert.ok(values.includes(GH_TOKEN));
+    const finding = report.findings.find((item) => item.label === "GitHub token");
+    assert.equal(finding?.source, "terminal-output");
+    assert.equal(JSON.stringify(report).includes(GH_TOKEN), false);
+  });
 });
 
 test("scanSession scans the whole event payload, not just primary fields", async () => {

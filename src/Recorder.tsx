@@ -5,6 +5,7 @@ import type {
   MicrophoneSettingsStatus,
   NarrationStatus,
   RecorderStatus,
+  ScreenSettingsStatus,
   SensitiveModelStatus,
 } from "../common/ipc";
 import {
@@ -50,6 +51,8 @@ export function Recorder() {
   const [narrationStatus, setNarrationStatus] = useState<NarrationStatus | null>(null);
   const [microphoneSettings, setMicrophoneSettings] =
     useState<MicrophoneSettingsStatus | null>(null);
+  const [screenSettings, setScreenSettings] =
+    useState<ScreenSettingsStatus | null>(null);
   const [privacyReviewOrigin, setPrivacyReviewOrigin] =
     useState<PrivacyReviewOrigin | null>(null);
   const [showRecordingWarning, setShowRecordingWarning] = useState(false);
@@ -61,6 +64,8 @@ export function Recorder() {
   const [advancedPending, setAdvancedPending] = useState(false);
   const [microphonePending, setMicrophonePending] = useState(false);
   const [microphoneActionError, setMicrophoneActionError] = useState<string | null>(null);
+  const [screenPending, setScreenPending] = useState(false);
+  const [screenActionError, setScreenActionError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [sessionCount, setSessionCount] = useState(0);
   const [pendingCount, setPendingCount] = useState(0);
@@ -83,17 +88,21 @@ export function Recorder() {
     void window.skillRecorder.doctor().then(setDoctor);
     void window.skillRecorder.narrationStatus().then(setNarrationStatus);
     void window.skillRecorder.microphoneSettings().then(setMicrophoneSettings);
+    void window.skillRecorder.screenSettings().then(setScreenSettings);
     void window.skillRecorder.sensitiveModelStatus().then(setSensitive);
     void refreshCount();
     const offRecorder = window.skillRecorder.onStatusChanged(applyRecorderStatus);
     const offNarration = window.skillRecorder.onNarrationStatusChanged(setNarrationStatus);
     const offMicrophones =
       window.skillRecorder.onMicrophoneSettingsChanged(setMicrophoneSettings);
+    const offScreens =
+      window.skillRecorder.onScreenSettingsChanged(setScreenSettings);
     const offSensitive = window.skillRecorder.onSensitiveModelStatusChanged(setSensitive);
     return () => {
       offRecorder();
       offNarration();
       offMicrophones();
+      offScreens();
       offSensitive();
     };
   }, [applyRecorderStatus, refreshCount]);
@@ -121,6 +130,8 @@ export function Recorder() {
   const narrate = microphoneSettings?.narrationEnabled ?? false;
   const narrationLanguageName = narrationLanguageLabel(narrationLanguage);
   const advancedOn = sensitive?.enabled ?? true;
+  const selectedScreenLabel =
+    screenSettings?.selectedSourceLabel ?? "Loading screens...";
 
   useEffect(() => {
     if (recording) {
@@ -285,6 +296,17 @@ export function Recorder() {
     setMicrophonePending(false);
   }, []);
 
+  const selectScreen = useCallback(async (sourceId: string) => {
+    setScreenPending(true);
+    setScreenActionError(null);
+    const result = await window.skillRecorder.selectScreen(sourceId);
+    setScreenSettings(result.status);
+    if (!result.ok) {
+      setScreenActionError(result.error ?? "Could not select that screen.");
+    }
+    setScreenPending(false);
+  }, []);
+
   const openLibrary = useCallback(() => {
     void window.skillRecorder.openLibrary();
   }, []);
@@ -318,7 +340,7 @@ export function Recorder() {
         <button
           className={`record ${recording ? "on" : ""}`}
           onClick={toggle}
-          disabled={transitioning || microphonePending}
+          disabled={transitioning || microphonePending || screenPending}
           aria-label={recording ? "Stop recording" : "Start recording"}
         >
           <span className="record-glyph" />
@@ -333,7 +355,9 @@ export function Recorder() {
               ? "Capture saved. Open Sessions to analyze"
               : justDiscarded
                 ? "Recording discarded"
-              : "Ready to capture"}
+              : screenSettings?.error
+                ? "Screen capture needs attention"
+                : `Ready to capture · ${selectedScreenLabel}`}
         </div>
       </div>
 
@@ -396,13 +420,14 @@ export function Recorder() {
           </button>
           <button
             className={`narrate-settings-toggle ${showNarrationSettings ? "open" : ""}`}
-            aria-label="Narration settings"
-            aria-controls="narration-settings"
+            aria-label="Recording settings"
+            aria-controls="recording-settings"
             aria-expanded={showNarrationSettings}
-            title="Narration settings"
-            disabled={microphonePending || recording || transitioning}
+            title="Recording settings"
+            disabled={microphonePending || screenPending || recording || transitioning}
             onClick={() => {
               setMicrophoneActionError(null);
+              setScreenActionError(null);
               setShowNarrationSettings((open) => !open);
             }}
           >
@@ -441,7 +466,7 @@ export function Recorder() {
               tabIndex={-1}
               onClick={() => setShowNarrationSettings(false)}
             />
-            <div id="narration-settings" className="narrate-settings">
+            <div id="recording-settings" className="narrate-settings">
             <label htmlFor="narrate-language">Language</label>
             <div className="narrate-select-wrap">
               <select
@@ -486,6 +511,36 @@ export function Recorder() {
                 ▾
               </span>
             </div>
+            <label htmlFor="recording-screen">Screen</label>
+            <div className="narrate-select-wrap">
+              <select
+                id="recording-screen"
+                value={screenSettings?.selectedSourceId ?? ""}
+                disabled={
+                  screenPending ||
+                  recording ||
+                  transitioning ||
+                  !screenSettings ||
+                  screenSettings.screens.length === 0
+                }
+                onChange={(event) => void selectScreen(event.target.value)}
+              >
+                {screenSettings?.screens.length ? (
+                  screenSettings.screens.map((source) => (
+                    <option key={source.id} value={source.id}>
+                      {source.label}
+                    </option>
+                  ))
+                ) : (
+                  <option value="">
+                    {screenSettings ? "No screens available" : "Loading screens..."}
+                  </option>
+                )}
+              </select>
+              <span className="narrate-select-chevron" aria-hidden>
+                ▾
+              </span>
+            </div>
             {(microphoneActionError ||
               microphoneSettings?.error ||
               microphoneSettings?.fallback) && (
@@ -504,6 +559,26 @@ export function Recorder() {
                 {microphoneActionError ??
                   microphoneSettings?.error ??
                   microphoneSettings?.fallback}
+              </p>
+            )}
+            {(screenActionError ||
+              screenSettings?.error ||
+              screenSettings?.fallback) && (
+              <p
+                className={`narrate-settings-note ${
+                  screenActionError || screenSettings?.error
+                    ? "error"
+                    : "warn"
+                }`}
+                role={
+                  screenActionError || screenSettings?.error
+                    ? "alert"
+                    : undefined
+                }
+              >
+                {screenActionError ??
+                  screenSettings?.error ??
+                  screenSettings?.fallback}
               </p>
             )}
             </div>

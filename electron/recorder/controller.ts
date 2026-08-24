@@ -42,7 +42,11 @@ function makeSessionId(d = new Date()): string {
 
 /** A best-effort screen-video sidecar tied to a session's lifecycle. */
 export interface SessionVideoRecorder {
-  start(sessionDir: string): Promise<void>;
+  start(
+    sessionDir: string,
+    sourceId?: string,
+    displayId?: string,
+  ): Promise<void>;
   stop(): Promise<unknown>;
 }
 
@@ -334,7 +338,11 @@ export class RecorderController {
       if (config.video && this.deps.createVideoRecorder) {
         this.video = this.deps.createVideoRecorder();
         try {
-          await this.video.start(store.dir);
+          await this.video.start(
+            store.dir,
+            options?.screenSourceId,
+            options?.screenDisplayId,
+          );
         } catch (error) {
           log.warn("video start failed:", error instanceof Error ? error.message : error);
           this.video = null;

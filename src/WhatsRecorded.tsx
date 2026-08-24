@@ -103,7 +103,7 @@ export function WhatsRecorded({
             <li>Which apps you switch to, and their window and document titles.</li>
             <li>Web addresses of the pages you open.</li>
             <li>A short preview of text you copy, up to 120 characters.</li>
-            <li>A silent video of your screen at a low frame rate.</li>
+            <li>A silent video of the screen you select, at a low frame rate.</li>
           </ul>
           <p className="sheet-caution">
             Do not type, paste, display, copy, or narrate passwords, access tokens, API keys,

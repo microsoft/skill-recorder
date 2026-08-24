@@ -19,6 +19,7 @@ import { createTray } from "./tray";
 import { dockIcon } from "./icons";
 import { AudioRecorder } from "./audio/recorder";
 import { VideoRecorder } from "./video/recorder";
+import { ScreenSourceService } from "./video/sources";
 import {
   clampRecordingControlsWindow,
   createLibraryWindow,
@@ -45,6 +46,7 @@ let recorderHome: Electron.Rectangle | null = null;
 let controlsExpanded = false;
 let quitReady = false;
 let quitTask: Promise<void> | null = null;
+let recordingStartPending = false;
 const recordingPrivacy = new RecordingPrivacySession();
 const narration = new NarrationManager((status) =>
   broadcast(IPC.narrationStatusChanged, status),
@@ -54,6 +56,9 @@ const sensitiveModels = new SensitiveModelManager((status) =>
 );
 const microphones = new AudioRecorder((status) =>
   broadcast(IPC.microphoneSettingsChanged, status),
+);
+const screens = new ScreenSourceService((status) =>
+  broadcast(IPC.screenSettingsChanged, status),
 );
 const recorder = new RecorderController({
   resolveConfig: () => ({ ...FULL_CAPTURE }),
@@ -73,8 +78,23 @@ const recorder = new RecorderController({
 });
 
 async function startRecording(): Promise<StartResult> {
-  await microphones.whenSettingsSettled();
-  return recorder.start(microphones.startOptions());
+  if (recordingStartPending) {
+    return { ok: false, error: "Recording is already starting." };
+  }
+  recordingStartPending = true;
+  try {
+    await Promise.all([
+      microphones.whenSettingsSettled(),
+      screens.whenSettingsSettled(),
+    ]);
+    const screenOptions = await screens.startOptions();
+    return await recorder.start({
+      ...microphones.startOptions(),
+      ...screenOptions,
+    });
+  } finally {
+    recordingStartPending = false;
+  }
 }
 
 /** Send an event to every live window (recorder HUD + library, if open). */
@@ -220,6 +240,14 @@ app.whenReady().then(async () => {
       error instanceof Error ? error.message : error,
     );
   }
+  try {
+    await screens.initialize();
+  } catch (error) {
+    log.warn(
+      "Screen source initialization failed:",
+      error instanceof Error ? error.message : error,
+    );
+  }
   registerIpc(
     recorder,
     describer,
@@ -227,7 +255,9 @@ app.whenReady().then(async () => {
     automationBuilder,
     narration,
     microphones,
+    screens,
     sensitiveModels,
+    () => recordingStartPending,
   );
   sensitiveModels.initialize();
   ipcMain.handle(IPC.start, () => requestStartRecording());
@@ -272,9 +302,13 @@ app.whenReady().then(async () => {
   });
   recorderWindow = createRecorderWindow();
 
-  screen.on("display-added", clampControlsToDisplay);
-  screen.on("display-removed", clampControlsToDisplay);
-  screen.on("display-metrics-changed", clampControlsToDisplay);
+  const handleDisplayChange = () => {
+    clampControlsToDisplay();
+    void screens.refresh();
+  };
+  screen.on("display-added", handleDisplayChange);
+  screen.on("display-removed", handleDisplayChange);
+  screen.on("display-metrics-changed", handleDisplayChange);
 
   try {
     createTray(

@@ -2,6 +2,7 @@ import type { Analysis, AnalysisFeedback, AnalysisStep, Confidence } from "./ana
 import type { AutomationPlan, BuiltAutomation } from "./automation";
 import type { MicrophoneDevice } from "./microphone";
 import type { NarrationLanguage } from "./narration";
+import type { ScreenSource } from "./screen";
 import type { SensitiveReport } from "./sensitive";
 import type {
   BuiltSkill,
@@ -262,6 +263,10 @@ export interface StartOptions {
   narrationLanguage?: NarrationLanguage;
   /** Device selected for the initial narration segment; defaults to the OS input. */
   microphoneDeviceId?: string;
+  /** Electron desktop-capture source selected for this recording. */
+  screenSourceId?: string;
+  /** Stable OS display identity used to validate the final Electron source. */
+  screenDisplayId?: string;
 }
 
 export interface StopResult {
@@ -310,6 +315,26 @@ export interface MicrophoneSettingsStatus {
 export interface MicrophoneSettingsResult {
   ok: boolean;
   status: MicrophoneSettingsStatus;
+  error?: string;
+}
+
+/** Shared pre-recording screen preference and current display catalog. */
+export interface ScreenSettingsStatus {
+  screens: ScreenSource[];
+  /** The preferred source, retained even while its display is disconnected. */
+  preferredSourceId: string;
+  preferredSourceLabel: string;
+  /** The source that will actually be recorded in the next session. */
+  selectedSourceId: string;
+  selectedSourceLabel: string;
+  preferredSourceUnavailable: boolean;
+  fallback: string | null;
+  error: string | null;
+}
+
+export interface ScreenSettingsResult {
+  ok: boolean;
+  status: ScreenSettingsStatus;
   error?: string;
 }
 
@@ -407,6 +432,9 @@ export const IPC = {
   microphoneNarration: "microphone:narration",
   microphoneDevice: "microphone:device",
   microphoneSettingsChanged: "microphone:settings-changed",
+  screenSettings: "screen:settings",
+  screenSource: "screen:source",
+  screenSettingsChanged: "screen:settings-changed",
   status: "recorder:status",
   marker: "recorder:marker",
   doctor: "doctor:check",
@@ -467,6 +495,11 @@ export interface SkillRecorderApi {
   selectMicrophone(deviceId: string): Promise<MicrophoneSettingsResult>;
   onMicrophoneSettingsChanged(
     cb: (status: MicrophoneSettingsStatus) => void,
+  ): () => void;
+  screenSettings(): Promise<ScreenSettingsStatus>;
+  selectScreen(sourceId: string): Promise<ScreenSettingsResult>;
+  onScreenSettingsChanged(
+    cb: (status: ScreenSettingsStatus) => void,
   ): () => void;
   status(): Promise<RecorderStatus>;
   marker(note: string): Promise<MarkerResult>;

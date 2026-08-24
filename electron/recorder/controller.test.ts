@@ -64,6 +64,38 @@ test("microphone toggles are serialized and finalized on save", async () => {
       },
     });
 
+    test("selected screen source is passed to the video recorder", async () => {
+      await withSessionsRoot(async () => {
+        let selectedSourceId: string | undefined;
+        let selectedDisplayId: string | undefined;
+        const controller = new RecorderController({
+          resolveConfig: () => ({ ...FULL_CAPTURE }),
+          buildCollectors: () => [],
+          createVideoRecorder: () => ({
+            start: async (_dir, sourceId, displayId) => {
+              selectedSourceId = sourceId;
+              selectedDisplayId = displayId;
+            },
+            stop: async () => null,
+          }),
+          deleteSession: async () => undefined,
+        });
+
+        assert.equal(
+          (
+            await controller.start({
+              screenSourceId: "screen:2:0",
+              screenDisplayId: "202",
+            })
+          ).ok,
+          true,
+        );
+        assert.equal(selectedSourceId, "screen:2:0");
+        assert.equal(selectedDisplayId, "202");
+        assert.equal((await controller.stop()).ok, true);
+      });
+    });
+
     const started = await controller.start();
     assert.equal(started.ok, true);
     assert.equal(audio.narrationLanguage, "en");

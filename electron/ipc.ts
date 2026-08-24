@@ -19,6 +19,7 @@ import type {
   DebugBundleResult,
   DeleteSessionResult,
   MicrophoneSettingsResult,
+  ScreenSettingsResult,
   SkillBuildInput,
   SkillCreateResult,
   SkillPlacement,
@@ -39,6 +40,7 @@ import { createLogger } from "./logger";
 import type { AudioRecorder } from "./audio/recorder";
 import type { NarrationManager } from "./narration/manager";
 import type { RecorderController } from "./recorder/controller";
+import type { ScreenSourceService } from "./video/sources";
 import { isValidSessionId } from "./recorder/session-store";
 import {
   INACTIVE_FRAME_REDACTOR,
@@ -60,7 +62,9 @@ export function registerIpc(
   automationBuilder: AutomationBuilder,
   narration: NarrationManager,
   microphones: AudioRecorder,
+  screens: ScreenSourceService,
   sensitiveModels: SensitiveModelManager,
+  isRecordingStartPending: () => boolean,
 ): void {
   ipcMain.handle(IPC.stop, () => recorder.stop());
   ipcMain.handle(IPC.discard, () => recorder.discard());
@@ -78,7 +82,7 @@ export function registerIpc(
           error: "Invalid narration preference.",
         };
       }
-      if (recorder.state === "recording") {
+      if (recorder.state === "recording" || isRecordingStartPending()) {
         return {
           ok: false,
           status: microphones.settings(),
@@ -86,6 +90,27 @@ export function registerIpc(
         };
       }
       return microphones.setNarrationEnabled(enabled);
+    },
+  );
+  ipcMain.handle(IPC.screenSettings, () => screens.refresh());
+  ipcMain.handle(
+    IPC.screenSource,
+    async (_event, sourceId: string): Promise<ScreenSettingsResult> => {
+      if (typeof sourceId !== "string" || !sourceId) {
+        return {
+          ok: false,
+          status: screens.settings(),
+          error: "Invalid screen selection.",
+        };
+      }
+      if (recorder.state === "recording") {
+        return {
+          ok: false,
+          status: screens.settings(),
+          error: "Choose the next recording's screen after this recording ends.",
+        };
+      }
+      return screens.selectSource(sourceId);
     },
   );
   ipcMain.handle(

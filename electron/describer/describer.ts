@@ -1,7 +1,6 @@
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-import { CAPTURED_FRAME_MANIFEST_VERSION } from "../../common/frames";
 import { approveAll, CopilotClient, type CopilotSession } from "@github/copilot-sdk";
 
 import {
@@ -39,11 +38,9 @@ const NUDGE_PROMPT =
 const msg = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 interface VideoMeta {
-  file: string;
   startEpoch: number;
   durationMs: number;
   framesFile?: string;
-  framesVersion?: number;
 }
 
 /** A live, resumable analysis session for one recording. */
@@ -372,17 +369,10 @@ export class Describer {
 function buildExtractor(sessionDir: string): FrameExtractor | null {
   const video = readJson<VideoMeta>(path.join(sessionDir, "video.json"));
   if (!video) return null;
-  const videoPath = path.join(sessionDir, video.file);
-  const capturedFramesPath = video.framesFile
-    ? path.join(sessionDir, video.framesFile)
-    : undefined;
-  const hasVideo = existsSync(videoPath);
-  const hasCapturedFrames = Boolean(capturedFramesPath && existsSync(capturedFramesPath));
-  if (!hasVideo && !hasCapturedFrames) return null;
+  const capturedFramesPath = video.framesFile && path.join(sessionDir, video.framesFile);
+  if (!capturedFramesPath || !existsSync(capturedFramesPath)) return null;
   return new FrameExtractor({
-    ...(hasVideo ? { videoPath } : {}),
-    ...(hasCapturedFrames ? { capturedFramesPath } : {}),
-    capturedFramesExpected: video.framesVersion === CAPTURED_FRAME_MANIFEST_VERSION,
+    capturedFramesPath,
     framesDir: path.join(sessionDir, "frames"),
     anchorEpochMs: video.startEpoch,
     durationSec: video.durationMs > 0 ? video.durationMs / 1000 : undefined,

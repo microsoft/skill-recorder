@@ -1,21 +1,16 @@
 #!/usr/bin/env node
 /**
- * Reviewer tool that proposes SHA-256 values for `third_party/compliance-policy.json`.
+ * Proposes SHA-256 values for newly reviewed compliance materials.
  *
- * `npm run compliance:prepare` is deliberately fail-closed: it will only accept source
- * material whose hash is already recorded in the policy, so it can never be used to
- * bootstrap new hashes. This script performs that bootstrap step separately, under human
- * review, and never writes to the policy itself — it prints a patch for a reviewer to
- * inspect and apply.
+ * The release path never bootstraps trust: `compliance:prepare` accepts only
+ * hashes already committed to the policy. This separate reviewer utility
+ * retrieves the exact pinned inputs and prints policy entries for inspection;
+ * it never edits the policy.
  *
  * Usage:
  *   node scripts/review-compliance-sources.mjs [--platform win32|darwin|linux]
  *                                              [--versions <versions.json>]
  *                                              [--all]
- *
- * Defaults to the payload installed for the current platform. `--versions` allows a
- * reviewer to generate the hashes for another platform's manifest from one machine;
- * `--all` also re-derives material that already has a reviewed hash.
  */
 import { execFile } from "node:child_process";
 import { createWriteStream, existsSync, readFileSync, statSync } from "node:fs";
@@ -27,19 +22,20 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import {
-  buildNativeSourceSpecs,
+  buildComplianceSourceSpecs,
+  buildStaticRemoteMaterialSpecs,
   deterministicGitConfigArgs,
   hasExpectedFileHeader,
-  nativePayloadCandidates,
   sha256File,
 } from "./compliance.mjs";
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const reviewDir = path.join(rootDir, ".compliance-review");
+const reviewDir = path.join(rootDir, ".compliance-cache", "review");
+const reviewGitDir = path.join(reviewDir, "git");
 
 function parseArguments(argv) {
-  const options = { platform: process.platform, versions: null, all: false };
+  const options = { all: false, platform: process.platform, versions: null };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === "--all") options.all = true;
@@ -51,19 +47,25 @@ function parseArguments(argv) {
   return options;
 }
 
-function loadVersions({ platform, versions }) {
-  if (versions) return JSON.parse(readFileSync(path.resolve(versions), "utf8"));
-  const candidates = Object.entries(nativePayloadCandidates)
-    .filter(([target]) => target.startsWith(`${platform}-`))
-    .flatMap(([, names]) => names);
-  for (const name of candidates) {
-    const file = path.join(rootDir, "node_modules", ...name.split("/"), "versions.json");
-    if (existsSync(file)) return JSON.parse(readFileSync(file, "utf8"));
+function loadNativeVersions(lock, versionsFile) {
+  if (versionsFile) return JSON.parse(readFileSync(path.resolve(versionsFile), "utf8"));
+  const candidates = Object.keys(lock.packages ?? {})
+    .filter((lockPath) => /^node_modules\/@img\/sharp-/.test(lockPath))
+    .map((lockPath) => path.join(rootDir, ...lockPath.split("/"), "versions.json"))
+    .filter(existsSync);
+  if (candidates.length === 0) {
+    throw new Error("No installed Sharp payload exposes versions.json; run npm ci first.");
   }
-  throw new Error(
-    `No installed native payload for ${platform}. Pass --versions <versions.json> to review ` +
-      "a manifest captured on another platform.",
-  );
+  const versions = candidates.map((file) => JSON.parse(readFileSync(file, "utf8")));
+  const canonical = JSON.stringify(versions[0]);
+  if (versions.some((value) => JSON.stringify(value) !== canonical)) {
+    throw new Error("Installed Sharp payloads disagree about embedded component versions.");
+  }
+  return versions[0];
+}
+
+function hasReviewedHash(hashes, id) {
+  return /^[a-f0-9]{64}$/.test(hashes?.[id] ?? "");
 }
 
 async function download(url, target) {
@@ -106,28 +108,93 @@ async function runGit(args, cwd) {
 }
 
 async function gitArchive(spec, target) {
-  const repository = path.join(reviewDir, "git", spec.id.replaceAll(/[^A-Za-z0-9._-]/g, "_"));
+  const safeId = spec.id.replaceAll(/[^A-Za-z0-9._-]/g, "_");
+  const repository = path.join(reviewGitDir, `${safeId}-${process.pid}`);
   await rm(repository, { recursive: true, force: true });
   await mkdir(repository, { recursive: true });
-  await runGit(["init", "--quiet"], repository);
-  await runGit(
-    ["fetch", "--depth=1", "--no-tags", "--quiet", spec.gitRepository, spec.gitRevision],
-    repository,
-  );
-  const resolved = await runGit(["rev-parse", "FETCH_HEAD"], repository);
-  if (resolved !== spec.gitRevision) {
-    throw new Error(`Fetched ${spec.id} revision ${resolved}; expected ${spec.gitRevision}.`);
+  try {
+    await runGit(["init", "--quiet"], repository);
+    await runGit(
+      ["fetch", "--depth=1", "--no-tags", "--quiet", spec.gitRepository, spec.gitRevision],
+      repository,
+    );
+    const resolved = await runGit(["rev-parse", "FETCH_HEAD"], repository);
+    if (resolved !== spec.gitRevision) {
+      throw new Error(`Fetched ${spec.id} revision ${resolved}; expected ${spec.gitRevision}.`);
+    }
+    await runGit(
+      [
+        ...deterministicGitConfigArgs,
+        "archive",
+        "--format=tar",
+        `--prefix=${spec.archivePrefix}`,
+        `--output=${target}`,
+        "FETCH_HEAD",
+      ],
+      repository,
+    );
+  } finally {
+    await rm(repository, { recursive: true, force: true });
   }
-  await runGit(
-    [
-      ...deterministicGitConfigArgs,
-      "archive",
-      "--format=tar",
-      `--prefix=${spec.archivePrefix}`,
-      `--output=${target}`,
-      "FETCH_HEAD",
-    ],
-    repository,
+}
+
+async function mapLimit(items, limit, worker) {
+  const results = new Array(items.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, async () => {
+      for (;;) {
+        const index = next;
+        next += 1;
+        if (index >= items.length) return;
+        results[index] = await worker(items[index]);
+      }
+    }),
+  );
+  return results;
+}
+
+async function reviewSources(specs, policy, all) {
+  const pending = specs.filter(({ id }) => all || !hasReviewedHash(policy.sourceMaterials, id));
+  return mapLimit(pending, 4, async (spec) => {
+    const target = path.join(reviewDir, "sources", spec.fileName);
+    await mkdir(path.dirname(target), { recursive: true });
+    await rm(target, { force: true });
+    if (spec.gitRepository) await gitArchive(spec, target);
+    else await download(spec.url, target);
+    if (!(await hasExpectedFileHeader(spec.fileName, target))) {
+      throw new Error(`${spec.id} did not produce a valid source archive.`);
+    }
+    return { id: spec.id, sha256: await sha256File(target), url: spec.url };
+  });
+}
+
+async function reviewRemoteMaterials(specs, policy, all) {
+  const pending = specs.filter(({ id }) => all || !hasReviewedHash(policy.remoteMaterials, id));
+  return mapLimit(pending, 4, async (spec) => {
+    const target = path.join(reviewDir, "remote", spec.fileName);
+    await mkdir(path.dirname(target), { recursive: true });
+    await rm(target, { force: true });
+    await download(spec.url, target);
+    const content = readFileSync(target, "utf8");
+    if (!content.includes(spec.marker)) {
+      throw new Error(`${spec.id} does not contain expected marker "${spec.marker}".`);
+    }
+    return { id: spec.id, sha256: await sha256File(target), url: spec.url };
+  });
+}
+
+function printEntries(label, results) {
+  console.log(`\nProposed third_party/compliance-policy.json ${label} entries:\n`);
+  if (results.length === 0) {
+    console.log("    (none)");
+    return;
+  }
+  console.log(
+    results
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .map(({ id, sha256 }) => `    ${JSON.stringify(id)}: ${JSON.stringify(sha256)}`)
+      .join(",\n"),
   );
 }
 
@@ -136,59 +203,20 @@ async function main() {
   const policy = JSON.parse(
     readFileSync(path.join(rootDir, "third_party", "compliance-policy.json"), "utf8"),
   );
-  const versions = loadVersions(options);
-  const specs = buildNativeSourceSpecs(versions, {
-    platform: options.platform,
-    sharpVersion: policy.sharp,
-    sharpLibvipsVersion: policy.sharpLibvips.version,
-    electronVersion: policy.electron.version,
-    ffmpegRevision: policy.electron.ffmpegRevision,
-    sourceCommits: policy.sourceCommits,
-  });
-
-  const pending = specs.filter(({ id }) => options.all || !policy.sourceMaterials?.[id]);
-  if (pending.length === 0) {
-    console.log("Every source material for this manifest already has a reviewed hash.");
-    return;
-  }
-
-  await mkdir(path.join(reviewDir, "sources"), { recursive: true });
-  const results = [];
-  const failures = [];
-  const queue = [...pending];
-  const workers = Array.from({ length: 4 }, async () => {
-    for (let spec = queue.shift(); spec; spec = queue.shift()) {
-      const target = path.join(reviewDir, "sources", spec.fileName);
-      try {
-        await rm(target, { force: true });
-        if (spec.gitRepository) await gitArchive(spec, target);
-        else await download(spec.url, target);
-        if (!(await hasExpectedFileHeader(spec.fileName, target))) {
-          throw new Error("retrieved material is not a valid archive or patch");
-        }
-        results.push({ id: spec.id, url: spec.url, sha256: await sha256File(target) });
-      } catch (error) {
-        failures.push({ id: spec.id, url: spec.url, message: error.message });
-      }
-    }
-  });
-  await Promise.all(workers);
-
-  results.sort((a, b) => a.id.localeCompare(b.id));
-  failures.sort((a, b) => a.id.localeCompare(b.id));
-
-  console.log(`\nReviewed source material for ${options.platform} (vips ${versions.vips}):\n`);
-  for (const { id, url } of results) console.log(`  ${id}\n    ${url}`);
-  console.log("\nProposed third_party/compliance-policy.json sourceMaterials entries:\n");
-  console.log(
-    results.map(({ id, sha256 }) => `    ${JSON.stringify(id)}: ${JSON.stringify(sha256)}`).join(",\n"),
+  const lock = JSON.parse(readFileSync(path.join(rootDir, "package-lock.json"), "utf8"));
+  const nativeVersions = loadNativeVersions(lock, options.versions);
+  const sourceSpecs = buildComplianceSourceSpecs(
+    nativeVersions,
+    lock,
+    policy,
+    options.platform,
   );
-
-  if (failures.length > 0) {
-    console.error("\nFailed to retrieve:");
-    for (const { id, url, message } of failures) console.error(`  ${id} (${url}): ${message}`);
-    process.exitCode = 1;
-  }
+  const [sources, remote] = await Promise.all([
+    reviewSources(sourceSpecs, policy, options.all),
+    reviewRemoteMaterials(buildStaticRemoteMaterialSpecs(policy), policy, options.all),
+  ]);
+  printEntries("sourceMaterials", sources);
+  printEntries("remoteMaterials", remote);
 }
 
 await main();

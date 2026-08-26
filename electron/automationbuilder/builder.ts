@@ -16,13 +16,13 @@ import {
 } from "../../common/automation";
 import type { AutomationBuildInput, AutomationBuildProgress } from "../../common/ipc";
 import { slugifySkillName, type SkillArchitecture } from "../../common/skill";
+import { requireCatalogue } from "../architectures/catalogue-registry";
 import { AgentBuilder, type BaseLive } from "../builders/agent-builder";
 import { createReadTools } from "../builders/read-tools";
 import { loadPersistedAnalysis } from "../describer/describer";
 import { createLogger } from "../logger";
 import { isValidSessionId, sessionDir } from "../recorder/session-store";
 import { AUTOMATION_BUILDER_INSTRUCTIONS } from "./instructions";
-import { automationCatalogueFor } from "./scout-automation-catalog";
 import { createAutomationBuilderTools } from "./tools";
 
 const log = createLogger("AutomationBuilder");
@@ -86,9 +86,7 @@ export class AutomationBuilder extends AgentBuilder<LiveBuild> {
   async build(input: AutomationBuildInput): Promise<AutomationPlan> {
     const { sessionId, architecture, feedback } = input;
     if (this.active.has(sessionId)) throw new Error("A build is already running for this session.");
-    if (!automationCatalogueFor(architecture)) {
-      throw new Error("That target architecture isn't available yet. Choose Scout.");
-    }
+    requireCatalogue(architecture, "automation");
     const analysis = loadPersistedAnalysis(sessionId);
     if (!analysis) throw new Error("There is no analysis for this recording yet.");
 
@@ -171,7 +169,7 @@ export class AutomationBuilder extends AgentBuilder<LiveBuild> {
       }),
     ];
 
-    const catalogue = automationCatalogueFor(architecture) ?? "";
+    const catalogue = requireCatalogue(architecture, "automation").content;
     const systemContent = `${AUTOMATION_BUILDER_INSTRUCTIONS}\n\n${catalogue}`.trim();
 
     const client = await this.ensureClient();

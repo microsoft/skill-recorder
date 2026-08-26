@@ -19,6 +19,7 @@ import type {
   DebugBundleResult,
   DeleteSessionResult,
   MicrophoneSettingsResult,
+  ScreenSettingsResult,
   SkillBuildInput,
   SkillCreateResult,
   SkillPlacement,
@@ -27,17 +28,27 @@ import type {
 import { IPC } from "../common/ipc";
 import type { AutomationPlan } from "../common/automation";
 import type { NarrationLanguage } from "../common/narration";
+import type { SensitiveReport } from "../common/sensitive";
 import type { SkillPlan } from "../common/skill";
 import { AutomationBuilder, loadPersistedAutomation } from "./automationbuilder/builder";
 import { openCopilotSignIn } from "./copilot-signin";
 import { buildDebugInfo, writeDebugBundle } from "./debug-bundle";
 import { Describer, loadPersistedAnalysis } from "./describer/describer";
+import type { RedactionContext } from "./describer/tools";
 import { runDoctor } from "./doctor";
 import { createLogger } from "./logger";
 import type { AudioRecorder } from "./audio/recorder";
 import type { NarrationManager } from "./narration/manager";
 import type { RecorderController } from "./recorder/controller";
+import type { ScreenSourceService } from "./video/sources";
 import { isValidSessionId } from "./recorder/session-store";
+import {
+  INACTIVE_FRAME_REDACTOR,
+  OcrFrameRedactor,
+  WITHHOLD_FRAME_REDACTOR,
+} from "./sensitive/frame-redact";
+import type { SensitiveModelManager } from "./sensitive/model-manager";
+import { buildRedactor, loadSensitiveReport, saveSensitiveReport, scanSession } from "./sensitive/scanner";
 import { deleteSession, listSessions } from "./sessions";
 import { loadPersistedSkill, SkillBuilder, type SkillTarget } from "./skillbuilder/builder";
 
@@ -51,6 +62,9 @@ export function registerIpc(
   automationBuilder: AutomationBuilder,
   narration: NarrationManager,
   microphones: AudioRecorder,
+  screens: ScreenSourceService,
+  sensitiveModels: SensitiveModelManager,
+  isRecordingStartPending: () => boolean,
 ): void {
   ipcMain.handle(IPC.stop, () => recorder.stop());
   ipcMain.handle(IPC.discard, () => recorder.discard());
@@ -68,7 +82,7 @@ export function registerIpc(
           error: "Invalid narration preference.",
         };
       }
-      if (recorder.state === "recording") {
+      if (recorder.state === "recording" || isRecordingStartPending()) {
         return {
           ok: false,
           status: microphones.settings(),
@@ -76,6 +90,27 @@ export function registerIpc(
         };
       }
       return microphones.setNarrationEnabled(enabled);
+    },
+  );
+  ipcMain.handle(IPC.screenSettings, () => screens.refresh());
+  ipcMain.handle(
+    IPC.screenSource,
+    async (_event, sourceId: string): Promise<ScreenSettingsResult> => {
+      if (typeof sourceId !== "string" || !sourceId) {
+        return {
+          ok: false,
+          status: screens.settings(),
+          error: "Invalid screen selection.",
+        };
+      }
+      if (recorder.state === "recording") {
+        return {
+          ok: false,
+          status: screens.settings(),
+          error: "Choose the next recording's screen after this recording ends.",
+        };
+      }
+      return screens.selectSource(sourceId);
     },
   );
   ipcMain.handle(
@@ -129,35 +164,117 @@ export function registerIpc(
     return dir ? path.basename(dir) : null;
   };
 
-  ipcMain.handle(IPC.analyze, async (_event, sessionId?: string): Promise<AnalyzeResult> => {
-    const id = resolveSessionId(sessionId);
-    if (!id) return { ok: false, error: "No completed session to analyze yet." };
-    if (!isValidSessionId(id)) return { ok: false, error: "Unknown session." };
-    // Transcribe any recorded voice first so analysis never silently runs without
-    // the user's spoken intent. Downloads the model on first use. Best-effort: a
-    // failure here falls through to analyzing without voice (the error is surfaced
-    // via the narration status affordance and the audio stays saved).
-    await narration.ensureTranscribedForAnalysis(id);
-    try {
-      const analysis = await describer.analyze(id);
-      return { ok: true, analysis };
-    } catch (err) {
-      const error = err instanceof Error ? err.message : String(err);
-      log.warn("analyze failed:", error);
-      return { ok: false, error };
-    }
+  ipcMain.handle(IPC.sensitiveModelStatus, () => sensitiveModels.status());
+  ipcMain.handle(IPC.sensitiveSetAdvanced, (_event, enabled: boolean) => {
+    if (typeof enabled !== "boolean") return { ok: false, error: "Invalid preference." };
+    return sensitiveModels.setAdvanced(enabled);
   });
+  ipcMain.handle(IPC.sensitiveDownloadModels, () => sensitiveModels.downloadModels());
+
+  /**
+   * Run the on-device pre-send scan and build the redaction context threaded into
+   * the describer. Gated by the single protection opt-out (on by default): when it
+   * is on, the text layers (secretlint + structured PII, which need no model) mask
+   * the outgoing text and the frame-OCR layer blurs on-screen matches once its model
+   * is ready; when the user has opted out, nothing is scanned and raw text + frames
+   * are sent. Non-blocking: a scan failure still lets analysis run — text goes out
+   * unmasked but frames are withheld so an error can't leak on-screen secrets.
+   */
+  const buildRedaction = async (
+    sessionId: string,
+  ): Promise<{ redaction: RedactionContext; report?: SensitiveReport }> => {
+    // Protection is a single opt-out covering BOTH layers: masking secrets/PII in the
+    // outgoing text AND blurring them in screen images. On by default; when the user
+    // turns it off they've accepted sending the recording unredacted (better analysis
+    // fidelity, no safety net), so we scan nothing and serve raw text + frames.
+    if (!sensitiveModels.isAdvancedEnabled()) {
+      return { redaction: { redactText: (t) => t, frameRedactor: INACTIVE_FRAME_REDACTOR } };
+    }
+    try {
+      const { report, values } = await scanSession(sessionId);
+      const redactText = buildRedactor(values);
+      // Blur on-screen matches in frames too. If the OCR model is still provisioning
+      // (typically a fresh first run) wait briefly for it rather than dropping frames;
+      // only withhold if it can't be made ready in time (so Analyze never hangs, e.g.
+      // offline).
+      await sensitiveModels.ensureReady();
+      const frameRedactor = new OcrFrameRedactor({ ocr: sensitiveModels.getOcr(), knownValues: values });
+      return { redaction: { redactText, frameRedactor }, report };
+    } catch (err) {
+      log.warn("sensitive scan failed; proceeding without text redaction:", err instanceof Error ? err.message : err);
+      // Protection is on but the scan threw: we have no values to mask text with, but we
+      // must NOT serve raw frames, so withhold them so a scan error can't leak on-screen
+      // secrets.
+      return {
+        redaction: { redactText: (t) => t, frameRedactor: WITHHOLD_FRAME_REDACTOR },
+      };
+    }
+  };
+
+  /**
+   * Fold the frame-blur tally (known only after the describer has pulled frames)
+   * into the pre-send text report, and decide whether there's anything worth
+   * surfacing. Returns undefined when protection was off/failed or nothing was
+   * hidden, so the UI shows a review only when it has something to say.
+   */
+  const summarizeProtection = (
+    report: SensitiveReport | undefined,
+    redaction: RedactionContext,
+  ): SensitiveReport | undefined => {
+    if (!report) return undefined;
+    const { framesBlurred, regionsBlurred } = redaction.frameRedactor?.stats ?? {
+      framesBlurred: 0,
+      regionsBlurred: 0,
+    };
+    const images = regionsBlurred > 0 ? { framesBlurred, regionsBlurred } : undefined;
+    if (report.totalFindings === 0 && !images) return undefined;
+    return images ? { ...report, images } : report;
+  };
+
+  ipcMain.handle(
+    IPC.analyze,
+    async (_event, sessionId?: string): Promise<AnalyzeResult> => {
+      const id = resolveSessionId(sessionId);
+      if (!id) return { ok: false, error: "No completed session to analyze yet." };
+      if (!isValidSessionId(id)) return { ok: false, error: "Unknown session." };
+      // Transcribe any recorded voice first so analysis never silently runs without
+      // the user's spoken intent. Downloads the model on first use. Best-effort: a
+      // failure here falls through to analyzing without voice (the error is surfaced
+      // via the narration status affordance and the audio stays saved).
+      await narration.ensureTranscribedForAnalysis(id);
+      // On-device pre-send redaction (non-blocking): mask secrets/credentials/PII in
+      // every outgoing text field — and, under Advanced protection, blur on-screen
+      // text in frames — before anything reaches GitHub Copilot. Analysis always
+      // proceeds; the (raw-value-free) report is returned purely for a UI summary.
+      const { redaction, report } = await buildRedaction(id);
+      try {
+        const analysis = await describer.analyze(id, redaction);
+        const review = summarizeProtection(report, redaction);
+        saveSensitiveReport(id, review);
+        return { ok: true, analysis, review };
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        log.warn("analyze failed:", error);
+        return { ok: false, error };
+      }
+    },
+  );
 
   ipcMain.handle(
     IPC.analyzeFeedback,
     async (_event, input: AnalysisFeedbackInput): Promise<AnalyzeResult> => {
       if (!isValidSessionId(input?.sessionId)) return { ok: false, error: "Unknown session." };
+      // Re-scan + rebind the redactor so the feedback round stays masked too.
+      const { redaction, report } = await buildRedaction(input.sessionId);
       try {
-        const analysis = await describer.feedback(input.sessionId, {
-          overall: input.overall,
-          steps: input.steps ?? [],
-        });
-        return { ok: true, analysis };
+        const analysis = await describer.feedback(
+          input.sessionId,
+          { overall: input.overall, steps: input.steps ?? [] },
+          redaction,
+        );
+        const review = summarizeProtection(report, redaction);
+        saveSensitiveReport(input.sessionId, review);
+        return { ok: true, analysis, review };
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
         log.warn("feedback failed:", error);
@@ -168,6 +285,10 @@ export function registerIpc(
 
   ipcMain.handle(IPC.getAnalysis, (_event, sessionId: string) =>
     isValidSessionId(sessionId) ? loadPersistedAnalysis(sessionId) : null,
+  );
+
+  ipcMain.handle(IPC.sensitiveGetReport, (_event, sessionId: string) =>
+    isValidSessionId(sessionId) ? loadSensitiveReport(sessionId) : null,
   );
 
   ipcMain.handle(IPC.updateAnalysis, async (_event, input: AnalysisEditInput): Promise<AnalyzeResult> => {

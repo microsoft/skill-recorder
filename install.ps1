@@ -137,7 +137,9 @@ function ConvertTo-ExtendedLengthPath {
 function Move-DirectoryTree {
   param(
     [Parameter(Mandatory)][string]$Source,
-    [Parameter(Mandatory)][string]$Destination
+    [Parameter(Mandatory)][string]$Destination,
+    [ValidateRange(1, 20)][int]$MaxAttempts = 6,
+    [ValidateRange(0, 5000)][int]$RetryDelayMilliseconds = 250
   )
 
   $extendedSource = ConvertTo-ExtendedLengthPath -Path $Source
@@ -152,7 +154,32 @@ function Move-DirectoryTree {
     throw "Refusing to overwrite an existing path: $Destination"
   }
 
-  [IO.Directory]::Move($extendedSource, $extendedDestination)
+  for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+    try {
+      [IO.Directory]::Move($extendedSource, $extendedDestination)
+      return
+    } catch {
+      $exception = $_.Exception
+      $isIoFailure = (
+        $exception -is [IO.IOException] -or
+        $exception.InnerException -is [IO.IOException]
+      )
+      if (-not $isIoFailure -or $attempt -eq $MaxAttempts) {
+        throw
+      }
+      if (
+        -not [IO.Directory]::Exists($extendedSource) -or
+        [IO.Directory]::Exists($extendedDestination) -or
+        [IO.File]::Exists($extendedDestination)
+      ) {
+        throw
+      }
+      if ($attempt -eq 1) {
+        Write-Warning "The installation directory is temporarily locked; retrying the move."
+      }
+      Start-Sleep -Milliseconds ($RetryDelayMilliseconds * $attempt)
+    }
+  }
 }
 
 function Remove-DirectoryTree {
@@ -249,6 +276,76 @@ function Invoke-CheckedCommand {
   }
 }
 
+function Resolve-MachineNpmConfigPath {
+  param([string[]]$CandidatePaths)
+
+  foreach ($candidate in $CandidatePaths) {
+    if ([string]::IsNullOrWhiteSpace($candidate)) {
+      continue
+    }
+    $trimmed = $candidate.Trim().Trim('"')
+    if ($trimmed -in @("undefined", "null")) {
+      continue
+    }
+    # A malformed npm configuration must never block a portable installation.
+    try {
+      if (Test-Path -LiteralPath $trimmed -PathType Leaf) {
+        return [IO.Path]::GetFullPath($trimmed)
+      }
+    } catch {
+      continue
+    }
+  }
+  return $null
+}
+
+function Get-SystemNpmGlobalConfigPath {
+  $npmCommand = @(
+    Get-Command npm -CommandType Application -ErrorAction SilentlyContinue
+  ) | Select-Object -First 1
+  if (-not $npmCommand) {
+    return $null
+  }
+
+  $previousPreference = $ErrorActionPreference
+  $output = @()
+  $exitCode = 1
+  try {
+    $ErrorActionPreference = "Continue"
+    $output = @(& $npmCommand.Source "config" "get" "globalconfig" 2>$null)
+    $exitCode = $LASTEXITCODE
+  } catch {
+    $output = @()
+    $exitCode = 1
+  } finally {
+    $ErrorActionPreference = $previousPreference
+    $global:LASTEXITCODE = 0
+  }
+
+  if ($exitCode -ne 0 -or $output.Count -eq 0) {
+    return $null
+  }
+  return ([string]$output[-1]).Trim()
+}
+
+function Get-MachineNpmConfigPath {
+  # The portable Node.js archive ships no builtin npmrc, so npm resolves its
+  # global config inside the throwaway runtime directory and silently ignores a
+  # registry configured for this machine. Point npm back at the real file so
+  # networks that block registry.npmjs.org still install through their mirror.
+  $candidates = New-Object System.Collections.Generic.List[string]
+
+  $reported = Get-SystemNpmGlobalConfigPath
+  if (-not [string]::IsNullOrWhiteSpace($reported)) {
+    $candidates.Add($reported)
+  }
+  if (-not [string]::IsNullOrWhiteSpace($env:APPDATA)) {
+    $candidates.Add((Join-Path $env:APPDATA "npm\etc\npmrc"))
+  }
+
+  return Resolve-MachineNpmConfigPath -CandidatePaths $candidates.ToArray()
+}
+
 function Get-WindowsArchitecture {
   $architecture = [Environment]::GetEnvironmentVariable(
     "PROCESSOR_ARCHITECTURE",
@@ -341,6 +438,12 @@ function Assert-ReviewedElectronDistribution {
   if ($manifestHash -ne $reviewedHash) {
     throw "Electron's checksum manifest does not match the reviewed distribution hash."
   }
+
+  return [pscustomobject]@{
+    Version = [string]$electronPackage.version
+    ArchiveName = $archiveName
+    Sha256 = $reviewedHash
+  }
 }
 
 function Get-NodeRuntime {
@@ -411,7 +514,7 @@ function Get-NodeRuntime {
     Assert-RequiredPaths -Root $expandedDirectory -RelativePaths @("LICENSE", "npm.cmd")
 
     New-Item -ItemType Directory -Path $RuntimeRoot -Force | Out-Null
-    Move-Item -LiteralPath $expandedDirectory -Destination $runtimeDirectory
+    Move-DirectoryTree -Source $expandedDirectory -Destination $runtimeDirectory
     Remove-CachedDownload -CachePath $archivePath
   } else {
     Write-Step "Reusing the verified Node.js $version runtime already installed at $runtimeDirectory."
@@ -567,26 +670,23 @@ if (Test-Path -LiteralPath $sourceDirectory -PathType Container) {
       "THIRD-PARTY-NOTICES.md",
       "CONTRIBUTING.md",
       "package.json",
-      "package-lock.json"
+      "package-lock.json",
+      "scripts\check-lockfile-portability.mjs",
+      "scripts\install-reviewed-electron.mjs",
+      "scripts\run-reviewed-electron.mjs"
     )
 
-    Write-Step "Installing lockfile-pinned dependencies from their publishers."
+    $machineNpmConfig = Get-MachineNpmConfigPath
+
     $environmentOverrides = [ordered]@{
       PATH = "$($runtime.Root);$env:PATH"
-      NPM_CONFIG_REGISTRY = "https://registry.npmjs.org/"
-      NPM_CONFIG_REPLACE_REGISTRY_HOST = "never"
-      NPM_CONFIG_PLATFORM = "win32"
-      NPM_CONFIG_ARCH = $architecture
-      ELECTRON_MIRROR = "https://github.com/electron/electron/releases/download/"
-      NPM_CONFIG_ELECTRON_MIRROR = "https://github.com/electron/electron/releases/download/"
-      ELECTRON_INSTALL_PLATFORM = "win32"
-      ELECTRON_INSTALL_ARCH = $architecture
-      ELECTRON_USE_REMOTE_CHECKSUMS = $null
-      NPM_CONFIG_ELECTRON_USE_REMOTE_CHECKSUMS = $null
-      ELECTRON_OVERRIDE_DIST_PATH = $null
-      ELECTRON_CUSTOM_DIR = $null
-      ELECTRON_CUSTOM_FILENAME = $null
+      NPM_CONFIG_ALLOW_SCRIPTS = $null
     }
+    if ($machineNpmConfig) {
+      Write-Step "Applying this machine's npm configuration from $machineNpmConfig."
+      $environmentOverrides["NPM_CONFIG_GLOBALCONFIG"] = $machineNpmConfig
+    }
+
     $originalEnvironment = @{}
     foreach ($entry in $environmentOverrides.GetEnumerator()) {
       $originalEnvironment[$entry.Key] = [Environment]::GetEnvironmentVariable(
@@ -602,20 +702,83 @@ if (Test-Path -LiteralPath $sourceDirectory -PathType Container) {
 
     Push-Location $buildDirectory
     try {
-      Invoke-CheckedCommand `
-        -FilePath $runtime.Npm `
-        -Arguments @("ci", "--no-audit", "--no-fund") `
-        -Description "npm ci"
+      $npmVersionOutput = @(& $runtime.Npm --version)
+      if ($LASTEXITCODE -ne 0 -or $npmVersionOutput.Count -eq 0) {
+        throw "Could not determine the bundled npm version."
+      }
+      $npmVersion = ([string]$npmVersionOutput[0]).Trim()
 
-      Assert-ReviewedElectronDistribution `
+      Write-Step "Validating portable dependency policy."
+      Invoke-CheckedCommand `
+        -FilePath $runtime.Node `
+        -Arguments @(
+          "scripts\check-lockfile-portability.mjs",
+          "--npm-version",
+          $npmVersion
+        ) `
+        -Description "lockfile portability validation"
+
+      Write-Step (
+        "Installing lockfile-pinned dependencies through the configured npm registry. " +
+        "Deprecation notices from transitive tooling do not by themselves mean installation failed."
+      )
+      $registryOutput = @(& $runtime.Npm config get registry)
+      $effectiveRegistry = "the configured npm registry"
+      if ($LASTEXITCODE -eq 0 -and $registryOutput.Count -gt 0) {
+        $effectiveRegistry = ([string]$registryOutput[-1]).Trim()
+        Write-Step "Dependencies will be downloaded from $effectiveRegistry."
+      }
+      $global:LASTEXITCODE = 0
+
+      try {
+        Invoke-CheckedCommand `
+          -FilePath $runtime.Npm `
+          -Arguments @(
+            "ci",
+            "--no-audit",
+            "--no-fund",
+            "--ignore-scripts=false",
+            "--dangerously-allow-all-scripts=false",
+            "--strict-allow-scripts"
+          ) `
+          -Description "npm ci"
+      } catch {
+        throw (
+          "$($_.Exception.Message) Dependencies were requested from $effectiveRegistry. " +
+          "If your network blocks that registry, configure a compatible mirror for this " +
+          "machine with 'npm config set registry <url> --location=global' and run the " +
+          "installer again. The lockfile's integrity hashes are verified whichever " +
+          "registry serves the packages."
+        )
+      }
+
+      $electronDistribution = Assert-ReviewedElectronDistribution `
         -SourceDirectory $buildDirectory `
         -Architecture $architecture
 
       Write-Step "Downloading the checksummed Electron runtime from GitHub."
+      $electronArchive = Join-Path $cacheRoot $electronDistribution.ArchiveName
+      $null = Get-CachedDownload `
+        -Uri (
+          "https://github.com/electron/electron/releases/download/" +
+          "v$($electronDistribution.Version)/$($electronDistribution.ArchiveName)"
+        ) `
+        -CachePath $electronArchive `
+        -ExpectedSha256 $electronDistribution.Sha256
+      Assert-ZipArchive -Path $electronArchive
       Invoke-CheckedCommand `
         -FilePath $runtime.Node `
-        -Arguments @("node_modules\electron\install.js") `
-        -Description "Electron runtime download"
+        -Arguments @(
+          "scripts\install-reviewed-electron.mjs",
+          "--archive",
+          $electronArchive,
+          "--platform",
+          "win32",
+          "--arch",
+          $architecture
+        ) `
+        -Description "reviewed Electron runtime installation"
+      Remove-CachedDownload -CachePath $electronArchive
 
       Write-Step "Validating dependency licenses and notices."
       Invoke-CheckedCommand `

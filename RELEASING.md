@@ -14,7 +14,7 @@ assembled by `install.ps1` or `install.sh` to a release.
 
 ## 1. Prepare a release pull request
 
-Start from the latest `master` and choose the next semantic version:
+Start from the latest `main` and choose the next semantic version:
 
 - patch (`0.1.1`) for compatible fixes;
 - minor (`0.2.0`) for compatible functionality;
@@ -35,7 +35,9 @@ below before updating any compliance policy hash.
 Run:
 
 ```sh
-npm ci
+npm run fix:lockfile-registry
+npm run check:lockfile
+npm ci --ignore-scripts=false --dangerously-allow-all-scripts=false --strict-allow-scripts
 npm run compliance:licenses
 ```
 
@@ -45,8 +47,15 @@ Inspect:
 - `.compliance/THIRD-PARTY-LICENSES.txt`;
 - `THIRD-PARTY-NOTICES.md`;
 - changes to `package-lock.json`;
+- the exact-version approvals and explicit denials in `package.json#allowScripts`;
 - every new or changed image, font, model, native library, executable, and
   copied source file.
+
+The committed lockfile must use canonical `registry.npmjs.org` resolved URLs.
+Microsoft contributors may fetch through a configured internal mirror, but
+internal feed URLs must never be committed. Review every new dependency install
+script before adding an exact-version approval; explicitly deny scripts that
+are not required.
 
 The compliance scripts intentionally reject unreviewed component versions and
 materials. Do not fix such a failure by blindly replacing a version or hash.
@@ -59,6 +68,8 @@ requirements, and upstream provenance first.
 | Electron or Chromium | Review the Electron archive and checksums, Chromium notices, FFmpeg revision/source/patches, and every supported platform hash. |
 | Sharp or sharp-libvips | Review package licenses, native dependency versions, build repositories, patches, source archives, and relinking instructions. |
 | ONNX Runtime | Review the exact release/development revision, license, notices, native packages, and source reference. |
+| Tesseract.js, Tesseract.js-core, or tessdata | Review the exact npm versions, WASM build commit and submodules, embedded-library notices, language-data commit/hash, and fixed source archives. |
+| Artistic-2.0 package | Retain the package notice and complete Artistic-2.0 text; include valid source instructions or the exact Standard Version source. |
 | New native or copyleft component | Add exact notices, canonical license text, complete corresponding source, build scripts/patches, and relinking instructions where required. |
 | Font, image, model, recording, or other asset | Record its provenance and written redistribution authorization; do not assume application code licenses cover assets. |
 
@@ -93,12 +104,12 @@ publish a release.
 
 ## 3. Merge and freeze the release commit
 
-Merge the release pull request into `master`, then wait for the workflows on
-the resulting `master` commit to pass. Record the exact commit:
+Merge the release pull request into `main`, then wait for the workflows on
+the resulting `main` commit to pass. Record the exact commit:
 
 ```sh
-git fetch origin master
-release_commit="$(git rev-parse origin/master)"
+git fetch origin main
+release_commit="$(git rev-parse origin/main)"
 printf '%s\n' "$release_commit"
 ```
 

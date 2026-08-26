@@ -3,11 +3,13 @@ import { app, BrowserWindow, globalShortcut, ipcMain, Menu, screen } from "elect
 import { FULL_CAPTURE } from "../common/config";
 import { IPC, type RecorderStatus, type StartResult } from "../common/ipc";
 import { createCollectors } from "./collectors";
+import { installCrashGuards } from "./crash-guards";
 import { Describer } from "./describer/describer";
 import { processSession } from "./pipeline";
 import { registerIpc } from "./ipc";
 import { createLogger } from "./logger";
 import { NarrationManager } from "./narration/manager";
+import { SensitiveModelManager } from "./sensitive/model-manager";
 import { RecorderController } from "./recorder/controller";
 import { RecordingPrivacySession } from "./recording-privacy";
 import { deleteSession } from "./sessions";
@@ -17,16 +19,22 @@ import { createTray } from "./tray";
 import { dockIcon } from "./icons";
 import { AudioRecorder } from "./audio/recorder";
 import { VideoRecorder } from "./video/recorder";
+import { ScreenSourceService } from "./video/sources";
 import {
   clampRecordingControlsWindow,
   createLibraryWindow,
   createRecorderWindow,
   createRecordingControlsWindow,
+  fitRecorderHeight,
   redockLibrary,
   setRecordingControlsExpanded,
 } from "./window";
 
 const log = createLogger("Main");
+
+// Contain stray async failures so a lost stream error can't crash the main
+// process (and the recording in progress). Registered before any window/IO work.
+installCrashGuards(log);
 
 /** Static red-dot tile used for the macOS Dock icon. */
 const dock = dockIcon();
@@ -38,12 +46,19 @@ let recorderHome: Electron.Rectangle | null = null;
 let controlsExpanded = false;
 let quitReady = false;
 let quitTask: Promise<void> | null = null;
+let recordingStartPending = false;
 const recordingPrivacy = new RecordingPrivacySession();
 const narration = new NarrationManager((status) =>
   broadcast(IPC.narrationStatusChanged, status),
 );
+const sensitiveModels = new SensitiveModelManager((status) =>
+  broadcast(IPC.sensitiveStatusChanged, status),
+);
 const microphones = new AudioRecorder((status) =>
   broadcast(IPC.microphoneSettingsChanged, status),
+);
+const screens = new ScreenSourceService((status) =>
+  broadcast(IPC.screenSettingsChanged, status),
 );
 const recorder = new RecorderController({
   resolveConfig: () => ({ ...FULL_CAPTURE }),
@@ -63,8 +78,23 @@ const recorder = new RecorderController({
 });
 
 async function startRecording(): Promise<StartResult> {
-  await microphones.whenSettingsSettled();
-  return recorder.start(microphones.startOptions());
+  if (recordingStartPending) {
+    return { ok: false, error: "Recording is already starting." };
+  }
+  recordingStartPending = true;
+  try {
+    await Promise.all([
+      microphones.whenSettingsSettled(),
+      screens.whenSettingsSettled(),
+    ]);
+    const screenOptions = await screens.startOptions();
+    return await recorder.start({
+      ...microphones.startOptions(),
+      ...screenOptions,
+    });
+  } finally {
+    recordingStartPending = false;
+  }
 }
 
 /** Send an event to every live window (recorder HUD + library, if open). */
@@ -210,6 +240,14 @@ app.whenReady().then(async () => {
       error instanceof Error ? error.message : error,
     );
   }
+  try {
+    await screens.initialize();
+  } catch (error) {
+    log.warn(
+      "Screen source initialization failed:",
+      error instanceof Error ? error.message : error,
+    );
+  }
   registerIpc(
     recorder,
     describer,
@@ -217,7 +255,11 @@ app.whenReady().then(async () => {
     automationBuilder,
     narration,
     microphones,
+    screens,
+    sensitiveModels,
+    () => recordingStartPending,
   );
+  sensitiveModels.initialize();
   ipcMain.handle(IPC.start, () => requestStartRecording());
   ipcMain.handle(IPC.startConfirmed, () => startRecording());
   ipcMain.handle(IPC.recordingPrivacyReviewed, () => recordingPrivacy.markReviewed());
@@ -241,6 +283,18 @@ app.whenReady().then(async () => {
     controlsExpanded = expanded;
     setRecordingControlsExpanded(win, expanded);
   });
+  ipcMain.on(IPC.fitRecorderHeight, (event, height: unknown) => {
+    const win = recorderWindow;
+    if (
+      !win ||
+      win.isDestroyed() ||
+      event.sender !== win.webContents ||
+      typeof height !== "number"
+    ) {
+      return;
+    }
+    fitRecorderHeight(win, height);
+  });
 
   recorder.onStatusChanged((status) => {
     broadcast(IPC.statusChanged, status);
@@ -248,9 +302,13 @@ app.whenReady().then(async () => {
   });
   recorderWindow = createRecorderWindow();
 
-  screen.on("display-added", clampControlsToDisplay);
-  screen.on("display-removed", clampControlsToDisplay);
-  screen.on("display-metrics-changed", clampControlsToDisplay);
+  const handleDisplayChange = () => {
+    clampControlsToDisplay();
+    void screens.refresh();
+  };
+  screen.on("display-added", handleDisplayChange);
+  screen.on("display-removed", handleDisplayChange);
+  screen.on("display-metrics-changed", handleDisplayChange);
 
   try {
     createTray(
@@ -311,4 +369,5 @@ app.on("will-quit", () => {
   void builder.dispose();
   void automationBuilder.dispose();
   microphones.dispose();
+  void sensitiveModels.dispose();
 });

@@ -323,7 +323,7 @@ button:focus-visible,
   flex-direction: column;
   gap: 10px;
   padding: 16px 18px 14px;
-  height: 100vh;
+  min-height: 100vh;
 }
 
 /* The signature: a physical record transport. */
@@ -455,11 +455,29 @@ button:focus-visible,
   display: grid;
   place-items: center;
   flex: none;
-  width: 42px;
-  border-left: 1px solid var(--line);
+  align-self: center;
+  width: 32px;
+  height: 32px;
+  margin-right: 2px;
+  border-radius: 8px;
   color: var(--muted);
   background: transparent;
   transition: color 0.15s ease, background 0.15s ease;
+}
+
+.narrate-switch-btn {
+  display: flex;
+  align-items: center;
+  flex: none;
+  align-self: center;
+  padding: 0 11px 0 2px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.narrate-switch-btn:disabled {
+  cursor: default;
+  opacity: 0.9;
 }
 
 .narrate-settings-toggle:not(:disabled):hover,
@@ -1873,6 +1891,284 @@ button:focus-visible,
 
 .cloud-analysis-caution {
   color: var(--brand-ink);
+}
+
+/* On-device sensitive-detail review (pre-send gate) */
+.sensitive-review {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 12px;
+  padding: 12px 14px;
+  color: var(--text);
+}
+
+.sensitive-review-bar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.sensitive-review-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  color: var(--text);
+}
+
+.sensitive-review-headline {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.sensitive-review-toggle {
+  flex: none;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sensitive-dismiss {
+  flex: none;
+  font-size: 12px;
+}
+
+.sensitive-review-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 2px;
+  border-top: 1px solid var(--line);
+}
+
+.sensitive-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.sensitive-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sensitive-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 9px;
+  padding: 9px 11px;
+}
+
+.sensitive-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.sensitive-dot.sev-high {
+  background: var(--rec);
+  box-shadow: 0 0 6px rgba(var(--rec-rgb), 0.5);
+}
+
+.sensitive-dot.sev-medium {
+  background: var(--warn);
+}
+
+.sensitive-item-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sensitive-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sensitive-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.sensitive-source {
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.sensitive-count {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.sensitive-snippet {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--muted);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.sensitive-caveat {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* --- Protection status badge (in the "what's recorded" HUD button) ---------
+   The Advanced-protection control moved into the "What's recorded" sheet; the
+   HUD keeps a compact, read-only badge so on/off/ready state stays visible and
+   the whole row opens the sheet to change it. */
+.privacy-note-badge {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.privacy-note-badge.is-off {
+  color: var(--faint);
+  background: var(--surface);
+  border-color: var(--line);
+}
+
+/* --- Advanced protection toggle (inside the "what's recorded" sheet) -------- */
+.sheet-advp {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.sheet-advp.on {
+  border-color: rgba(var(--brand-rgb), 0.4);
+  background: var(--signal-dim);
+}
+
+.sheet-advp-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.sheet-advp-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.sheet-advp-copy h3 {
+  margin: 0;
+}
+
+.sheet-switch-btn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  margin-top: 2px;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.sheet-switch-btn:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.sheet-switch {
+  box-sizing: border-box;
+  width: 40px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--line-strong);
+  padding: 3px;
+  transition: background 0.15s ease;
+}
+
+.sheet-switch.on {
+  background: var(--brand);
+}
+
+.sheet-switch-knob {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform 0.15s ease;
+}
+
+.sheet-switch.on .sheet-switch-knob {
+  transform: translateX(16px);
+}
+
+.sheet-advp-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.sheet-advp-status.is-error {
+  color: var(--warn);
+}
+
+.sheet-advp-download {
+  flex: none;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--brand-ink);
+  background: transparent;
+  padding: 2px 4px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.record-cta.danger {
+  background: var(--rec);
+  box-shadow: 0 2px 12px -3px rgba(var(--rec-rgb), 0.45);
+}
+
+.record-cta.danger:not(:disabled):hover {
+  filter: brightness(1.06);
+  box-shadow: 0 3px 16px -3px rgba(var(--rec-rgb), 0.55);
 }
 
 .voice-card {

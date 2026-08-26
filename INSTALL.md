@@ -3,7 +3,8 @@
 Skill Recorder can run directly from an exact source revision on Windows, macOS,
 or Ubuntu. These methods do not download a prebuilt Skill Recorder application.
 Node.js, Electron, native dependencies, and the GitHub Copilot CLI are obtained
-directly from their publishers and assembled locally.
+from canonical upstreams or compatible configured registries and assembled
+locally.
 
 The generated build is for local execution only. Do not redistribute the build,
 `node_modules`, or downloaded runtimes. Release binaries must use the
@@ -46,8 +47,10 @@ The source installers:
    its archive against Node.js's `SHASUMS256.txt`. Windows additionally verifies
    the OpenJS Foundation Authenticode signature.
 4. Download only the exact source commit from GitHub Codeload.
-5. Run `npm ci`, install Electron from its official release endpoint, and confirm
-   Electron's official checksum manifest matches the reviewed compliance policy.
+5. Validate that the lockfile contains canonical npmjs URLs, run `npm ci` through
+   the user's configured registry or compatible mirror, install Electron from its
+   official release endpoint, and confirm Electron's official checksum manifest
+   matches the reviewed compliance policy.
 6. Run `npm run compliance:licenses` and fail if any installed platform package
    lacks reviewed legal material.
 7. Build locally, retain repository/dependency licenses, and record hashes for
@@ -161,8 +164,10 @@ installed revision.
 
 ## Manual developer setup
 
-Install native Node.js 24 from its official publisher. Download the exact commit
-archive rather than repository history.
+Install Node.js 24.19 or newer within the Node.js 24 release line from its
+official publisher. This supplies npm 11.17 or newer, which is required to
+enforce the reviewed dependency lifecycle-script policy. Download the exact
+commit archive rather than repository history.
 
 ### Windows PowerShell
 
@@ -173,8 +178,9 @@ $parent = Join-Path $PWD "skill-recorder-source"
 Invoke-WebRequest "https://codeload.github.com/microsoft/skill-recorder/zip/$commit" -OutFile $archive -UseBasicParsing
 Expand-Archive $archive $parent
 Set-Location (Join-Path $parent "skill-recorder-$commit")
-npm ci
-node node_modules\electron\install.js
+npm run check:lockfile
+npm ci --ignore-scripts=false --dangerously-allow-all-scripts=false --strict-allow-scripts
+npm run electron:install-reviewed
 npm run compliance:licenses
 npm run build
 npm start
@@ -190,8 +196,9 @@ curl -fsSL "https://codeload.github.com/microsoft/skill-recorder/tar.gz/$commit"
 mkdir "$source_dir"
 tar -xzf "$archive" --strip-components=1 -C "$source_dir"
 cd "$source_dir"
-npm ci
-node node_modules/electron/install.js
+npm run check:lockfile
+npm ci --ignore-scripts=false --dangerously-allow-all-scripts=false --strict-allow-scripts
+npm run electron:install-reviewed
 npm run compliance:licenses
 npm run build
 npm start
@@ -217,26 +224,54 @@ curl -fsSL "https://codeload.github.com/microsoft/skill-recorder/tar.gz/$commit"
 mkdir "$source_dir"
 tar -xzf "$archive" --strip-components=1 -C "$source_dir"
 cd "$source_dir"
-npm ci
-node node_modules/electron/install.js
+npm run check:lockfile
+npm ci --ignore-scripts=false --dangerously-allow-all-scripts=false --strict-allow-scripts
+npm run electron:install-reviewed
 npm run compliance:licenses
 npm run build
 npm start
 ```
 
-For hot-reload development, run `npm run dev` after `npm ci` and
-`npm run compliance:licenses`.
+For hot-reload development, run `npm run dev` after the validated install
+sequence above and `npm run compliance:licenses`.
 
-The lockfile pins the dependency graph. Use `npm ci`, not `npm install`, and do
-not regenerate the lockfile during installation. Keep the entire checkout,
-`.compliance`, and dependency legal files.
+The lockfile pins the dependency graph with canonical `registry.npmjs.org` URLs
+and integrity hashes. npm may map those URLs to a configured compatible
+corporate registry. Use `npm ci`, not `npm install`, and do not regenerate the
+lockfile during installation. Keep the entire checkout, `.compliance`, and
+dependency legal files.
+
+### Networks that block registry.npmjs.org
+
+The installers run a portable Node.js runtime that is unpacked into the
+installation root. Because Node.js's portable archives ship no builtin npmrc,
+npm would resolve its global configuration inside that throwaway runtime
+directory and ignore the registry configured for the machine. The installers
+therefore locate the machine's real global npmrc and pass it to the portable npm
+so that `replace-registry-host` maps the lockfile's canonical npmjs URLs onto the
+configured mirror. Machines with no npm configuration are unaffected and continue
+to use `registry.npmjs.org`.
+
+Configure a mirror once with:
+
+```sh
+npm config set registry <url> --location=global
+```
+
+The installers never pin or override the registry themselves; they only make the
+machine's existing npm configuration visible to the portable runtime. The
+lockfile's integrity hashes are verified whichever registry serves the packages,
+so a mirror cannot substitute different content.
 
 ## Licensing boundary
 
 The source channels distribute this repository's MIT-licensed source. The
-user's package manager obtains Electron, Sharp/libvips, ONNX Runtime, the
-unmodified GitHub Copilot CLI, and other dependencies from their publishers.
-The local build is not a redistributable application package.
+user's package manager obtains Sharp/libvips, ONNX Runtime, Tesseract.js, the
+unmodified GitHub Copilot CLI, and other npm dependencies through its configured registry;
+the installer obtains the reviewed Electron runtime from GitHub. Canonical
+registry URLs and integrity hashes keep the lockfile portable across direct
+npmjs access and compatible corporate mirrors. The local build is not a
+redistributable application package.
 
 Each platform's compliance check retains:
 
@@ -244,8 +279,9 @@ Each platform's compliance check retains:
 - complete license files installed with npm packages, including the Copilot CLI
   license;
 - Electron and Chromium runtime notices;
-- canonical GPL, LGPL, and MPL texts under `.compliance/licenses`;
+- canonical GPL, LGPL, MPL, and Artistic-2.0 texts under `.compliance/licenses`;
 - platform-specific Sharp/libvips and ONNX Runtime notices under `.compliance`;
+- Tesseract WebAssembly component notices under `.compliance/tesseract-core`;
 - an inventory with no unresolved dependency-license entries.
 
 Anyone redistributing a generated application must instead use the supported

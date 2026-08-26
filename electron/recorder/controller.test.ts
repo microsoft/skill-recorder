@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdtemp, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -62,6 +62,38 @@ test("microphone toggles are serialized and finalized on save", async () => {
       postProcess: async () => {
         processed++;
       },
+    });
+
+    test("selected screen source is passed to the video recorder", async () => {
+      await withSessionsRoot(async () => {
+        let selectedSourceId: string | undefined;
+        let selectedDisplayId: string | undefined;
+        const controller = new RecorderController({
+          resolveConfig: () => ({ ...FULL_CAPTURE }),
+          buildCollectors: () => [],
+          createVideoRecorder: () => ({
+            start: async (_dir, sourceId, displayId) => {
+              selectedSourceId = sourceId;
+              selectedDisplayId = displayId;
+            },
+            stop: async () => null,
+          }),
+          deleteSession: async () => undefined,
+        });
+
+        assert.equal(
+          (
+            await controller.start({
+              screenSourceId: "screen:2:0",
+              screenDisplayId: "202",
+            })
+          ).ok,
+          true,
+        );
+        assert.equal(selectedSourceId, "screen:2:0");
+        assert.equal(selectedDisplayId, "202");
+        assert.equal((await controller.stop()).ok, true);
+      });
     });
 
     const started = await controller.start();
@@ -362,6 +394,67 @@ test("stop waits behind an in-flight microphone enable", async () => {
     assert.equal((await enabling).ok, true);
     assert.equal((await stopping).ok, true);
     assert.deepEqual(calls, ["start", "enable:start", "enable:end", "disable", "finish"]);
+  });
+});
+
+test("stop recovers to idle when finalizing the session fails", async () => {
+  await withSessionsRoot(async (root) => {
+    const controller = new RecorderController({
+      resolveConfig: () => ({ ...FULL_CAPTURE, video: false }),
+      buildCollectors: () => [],
+      deleteSession: async () => undefined,
+    });
+
+    const started = await controller.start();
+    assert.equal(started.ok, true);
+    const id = started.sessionId;
+    assert.ok(id);
+
+    // Force finalize() to throw the way a real disk failure would: replace the
+    // metadata file with a directory so writeMeta()'s writeFileSync hits EISDIR.
+    // A regression here leaves the state machine wedged in "stopping" forever.
+    await rm(path.join(root, id, "session.json"), { force: true });
+    await mkdir(path.join(root, id, "session.json"));
+
+    const stopped = await controller.stop();
+    assert.equal(stopped.ok, false);
+    assert.match(stopped.error ?? "", /finaliz/i);
+    assert.equal(controller.status().state, "idle");
+    assert.equal(controller.status().transition, "none");
+
+    // The recorder must accept a brand-new recording afterwards (not stay wedged).
+    const restarted = await controller.start();
+    assert.equal(restarted.ok, true);
+    assert.equal(controller.status().state, "recording");
+    assert.equal((await controller.stop()).ok, true);
+  });
+});
+
+test("start recovers to idle when collector setup throws", async () => {
+  await withSessionsRoot(async () => {
+    let attempts = 0;
+    const controller = new RecorderController({
+      resolveConfig: () => ({ ...FULL_CAPTURE, video: false }),
+      buildCollectors: () => {
+        attempts += 1;
+        if (attempts === 1) throw new Error("collector build failed");
+        return [];
+      },
+      deleteSession: async () => undefined,
+    });
+
+    // The throw lands after the store is attached and the transition is "starting";
+    // a regression leaves the machine reporting "recording" with no way to recover.
+    const first = await controller.start();
+    assert.equal(first.ok, false);
+    assert.match(first.error ?? "", /collector build failed/i);
+    assert.equal(controller.status().state, "idle");
+    assert.equal(controller.status().transition, "none");
+
+    const second = await controller.start();
+    assert.equal(second.ok, true);
+    assert.equal(controller.status().state, "recording");
+    assert.equal((await controller.stop()).ok, true);
   });
 });
 

@@ -10,9 +10,19 @@ import { NARRATION_FILE, type NarrationTranscript } from "../../common/narration
 import type { RecEvent } from "../../common/types";
 import { readEvents } from "../frames/correlate";
 import type { FrameExtractor } from "../frames/extractor";
+import type { FrameRedactor } from "../sensitive/frame-redact";
 import { createLogger } from "../logger";
 
 const log = createLogger("Describer/tools");
+
+/** Redaction applied to a session's data before it leaves the machine. Threaded
+ *  through a mutable slot so the same live tools pick up fresh values each turn. */
+export interface RedactionContext {
+  /** Mask every detected raw value in an outgoing text string. */
+  redactText: (text: string) => string;
+  /** Frame OCR + blur policy for get_frames, or null to serve frames unchanged. */
+  frameRedactor: FrameRedactor | null;
+}
 
 /** Everything a session's tools are bound to. */
 export interface ToolContext {
@@ -21,6 +31,8 @@ export interface ToolContext {
   startedAt: number;
   /** Frame service, or null when the session has no video. */
   extractor: FrameExtractor | null;
+  /** Mutable redaction slot; `current` is set per turn (null = no redaction). */
+  redaction: { current: RedactionContext | null };
   /** Streamed to the UI as the agent works. */
   onProgress?: (message: string) => void;
   /** Called when the agent submits a (validated) analysis. */
@@ -66,6 +78,8 @@ function readNarration(sessionDir: string): NarrationTranscript | null {
 export function createDescriberTools(ctx: ToolContext): Tool[] {
   const { sessionDir, startedAt, extractor, onSubmit } = ctx;
   const progress = (m: string) => ctx.onProgress?.(m);
+  // Mask detected sensitive values in every outgoing text field (null slot = no-op).
+  const redact = (s: string): string => ctx.redaction.current?.redactText(s) ?? s;
   const rel = (epoch: number) => Math.round(epoch - startedAt);
   const abs = (atMs: number) => startedAt + atMs;
   const sec = (atMs: number) => (atMs / 1000).toFixed(1);
@@ -105,7 +119,7 @@ export function createDescriberTools(ctx: ToolContext): Tool[] {
           summary: s.summary,
         })),
       };
-      return JSON.stringify(view, null, 2);
+      return redact(JSON.stringify(view, null, 2));
     },
   };
 
@@ -151,17 +165,19 @@ export function createDescriberTools(ctx: ToolContext): Tool[] {
       // of rows in one tool result. When truncated, tell the agent how to narrow.
       const rows = all.slice(0, MAX_EVENTS);
       const truncated = all.length > rows.length;
-      return JSON.stringify(
-        {
-          count: rows.length,
-          total: all.length,
-          ...(truncated
-            ? { truncated: true, note: `Showing the first ${MAX_EVENTS} of ${all.length} events. Narrow with fromMs/toMs or filter by types.` }
-            : {}),
-          events: rows,
-        },
-        null,
-        2,
+      return redact(
+        JSON.stringify(
+          {
+            count: rows.length,
+            total: all.length,
+            ...(truncated
+              ? { truncated: true, note: `Showing the first ${MAX_EVENTS} of ${all.length} events. Narrow with fromMs/toMs or filter by types.` }
+              : {}),
+            events: rows,
+          },
+          null,
+          2,
+        ),
       );
     },
   };
@@ -251,13 +267,41 @@ export function createDescriberTools(ctx: ToolContext): Tool[] {
         for (let i = 0; i < MAX_IMAGES_PER_CALL; i++) picks.push(inWindow[Math.round(i * stride)]);
       }
 
+      // Advanced protection: frames are the only image channel, so on-screen text
+      // must be OCR'd + blurred before any pixels are sent. Policy:
+      //   inactive          → serve raw frames (baseline behaviour).
+      //   active, not ready  → WITHHOLD frames (assets still loading) — never raw.
+      //   active, ready      → blur detected regions per frame; withhold on failure.
+      const redactor = ctx.redaction.current?.frameRedactor ?? null;
+      const protect = redactor?.active ?? false;
+      if (redactor?.active && !redactor.ready) {
+        return {
+          textResultForLlm:
+            "Advanced protection is on but the on-device OCR model could not be made ready (it may still be downloading, or the download failed, for example when offline), so screen frames are being withheld for this window to avoid sending unredacted on-screen text. Proceeding on events and narration; frames become available once the model is ready.",
+          resultType: "success",
+        };
+      }
+
       const binaryResultsForLlm: { data: string; mimeType: string; type: "image"; description?: string }[] = [];
+      let withheld = 0;
       for (const f of picks) {
         const file = path.join(sessionDir, "frames", f.file);
         if (!existsSync(file)) continue;
         try {
+          let data: string;
+          if (protect && redactor) {
+            const buf = await redactor.redactFrame(file);
+            if (!buf) {
+              // Redaction failed for this frame — withhold it rather than serve raw.
+              withheld++;
+              continue;
+            }
+            data = buf.toString("base64");
+          } else {
+            data = readFileSync(file).toString("base64");
+          }
           binaryResultsForLlm.push({
-            data: readFileSync(file).toString("base64"),
+            data,
             mimeType: "image/jpeg",
             type: "image",
             description: `${sec(rel(f.tMs))}s (${f.source}) ${f.file}`,
@@ -268,9 +312,12 @@ export function createDescriberTools(ctx: ToolContext): Tool[] {
       }
       const listing = inWindow.map((f) => `- ${sec(rel(f.tMs))}s ${f.file} (${f.source})`).join("\n");
       progress(`Attached ${binaryResultsForLlm.length} frame image(s) from ${sec(fromMs)}–${sec(toMs)}s.`);
+      const protectNote = protect
+        ? ` On-device Advanced protection blurred any detected sensitive on-screen text${withheld ? `; ${withheld} frame(s) were withheld because redaction failed` : ""}.`
+        : "";
       return {
         textResultForLlm:
-          `Frames in ${sec(fromMs)}–${sec(toMs)}s (${inWindow.length} total, ${binaryResultsForLlm.length} shown as images):\n${listing}`,
+          `Frames in ${sec(fromMs)}–${sec(toMs)}s (${inWindow.length} total, ${binaryResultsForLlm.length} shown as images):\n${listing}${protectNote}`,
         binaryResultsForLlm,
         resultType: "success",
       };
@@ -305,7 +352,7 @@ export function createDescriberTools(ctx: ToolContext): Tool[] {
       if (lines.length === 0) {
         return `No narration lines match “${args.query}”. Call get_narration with no query to read the whole transcript.`;
       }
-      return lines.join("\n");
+      return redact(lines.join("\n"));
     },
   };
 

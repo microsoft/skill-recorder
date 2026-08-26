@@ -13,6 +13,9 @@ const IPC = {
   microphoneNarration: "microphone:narration",
   microphoneDevice: "microphone:device",
   microphoneSettingsChanged: "microphone:settings-changed",
+  screenSettings: "screen:settings",
+  screenSource: "screen:source",
+  screenSettingsChanged: "screen:settings-changed",
   status: "recorder:status",
   marker: "recorder:marker",
   doctor: "doctor:check",
@@ -24,6 +27,11 @@ const IPC = {
   narrationDownload: "narration:download",
   narrationTranscribe: "narration:transcribe",
   narrationStatusChanged: "narration:status-changed",
+  sensitiveModelStatus: "sensitive:status",
+  sensitiveSetAdvanced: "sensitive:set-advanced",
+  sensitiveDownloadModels: "sensitive:download-models",
+  sensitiveStatusChanged: "sensitive:status-changed",
+  sensitiveGetReport: "sensitive:get-report",
   analyze: "analyze:start",
   analyzeFeedback: "analyze:feedback",
   getAnalysis: "analyze:get",
@@ -48,6 +56,7 @@ const IPC = {
   openLibrary: "ui:open-library",
   closeLibrary: "ui:close-library",
   recordingControlsExpanded: "ui:recording-controls-expanded",
+  fitRecorderHeight: "ui:fit-recorder-height",
 };
 
 let recordingPrivacyWarningPending = false;
@@ -86,6 +95,13 @@ contextBridge.exposeInMainWorld("skillRecorder", {
     ipcRenderer.on(IPC.microphoneSettingsChanged, listener);
     return () => ipcRenderer.removeListener(IPC.microphoneSettingsChanged, listener);
   },
+  screenSettings: () => ipcRenderer.invoke(IPC.screenSettings),
+  selectScreen: (sourceId) => ipcRenderer.invoke(IPC.screenSource, sourceId),
+  onScreenSettingsChanged: (cb) => {
+    const listener = (_event, status) => cb(status);
+    ipcRenderer.on(IPC.screenSettingsChanged, listener);
+    return () => ipcRenderer.removeListener(IPC.screenSettingsChanged, listener);
+  },
   status: () => ipcRenderer.invoke(IPC.status),
   marker: (note) => ipcRenderer.invoke(IPC.marker, note),
   doctor: () => ipcRenderer.invoke(IPC.doctor),
@@ -103,6 +119,15 @@ contextBridge.exposeInMainWorld("skillRecorder", {
     ipcRenderer.on(IPC.narrationStatusChanged, listener);
     return () => ipcRenderer.removeListener(IPC.narrationStatusChanged, listener);
   },
+  sensitiveModelStatus: () => ipcRenderer.invoke(IPC.sensitiveModelStatus),
+  setAdvancedProtection: (enabled) => ipcRenderer.invoke(IPC.sensitiveSetAdvanced, enabled),
+  downloadSensitiveModels: () => ipcRenderer.invoke(IPC.sensitiveDownloadModels),
+  onSensitiveModelStatusChanged: (cb) => {
+    const listener = (_event, status) => cb(status);
+    ipcRenderer.on(IPC.sensitiveStatusChanged, listener);
+    return () => ipcRenderer.removeListener(IPC.sensitiveStatusChanged, listener);
+  },
+  getSensitiveReport: (sessionId) => ipcRenderer.invoke(IPC.sensitiveGetReport, sessionId),
   analyze: (sessionId) => ipcRenderer.invoke(IPC.analyze, sessionId),
   analyzeFeedback: (input) => ipcRenderer.invoke(IPC.analyzeFeedback, input),
   getAnalysis: (sessionId) => ipcRenderer.invoke(IPC.getAnalysis, sessionId),
@@ -140,4 +165,5 @@ contextBridge.exposeInMainWorld("skillRecorder", {
   closeLibrary: () => ipcRenderer.invoke(IPC.closeLibrary),
   setRecordingControlsExpanded: (expanded) =>
     ipcRenderer.invoke(IPC.recordingControlsExpanded, expanded),
+  fitRecorderHeight: (height) => ipcRenderer.send(IPC.fitRecorderHeight, height),
 });

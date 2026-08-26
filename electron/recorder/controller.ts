@@ -42,7 +42,11 @@ function makeSessionId(d = new Date()): string {
 
 /** A best-effort screen-video sidecar tied to a session's lifecycle. */
 export interface SessionVideoRecorder {
-  start(sessionDir: string): Promise<void>;
+  start(
+    sessionDir: string,
+    sourceId?: string,
+    displayId?: string,
+  ): Promise<void>;
   stop(): Promise<unknown>;
 }
 
@@ -325,45 +329,102 @@ export class RecorderController {
     log.info("Recording started:", store.meta.id, "->", store.dir);
     this.emit();
 
-    const config = this.deps.resolveConfig();
-    this.activeCollectors = this.deps.buildCollectors(config);
-    await this.host.startAll(this.activeCollectors, store.dir);
+    try {
+      const config = this.deps.resolveConfig();
+      this.activeCollectors = this.deps.buildCollectors(config);
+      await this.host.startAll(this.activeCollectors, store.dir);
 
-    // Video remains a best-effort sidecar; it never blocks the event recording.
-    if (config.video && this.deps.createVideoRecorder) {
-      this.video = this.deps.createVideoRecorder();
-      try {
-        await this.video.start(store.dir);
-      } catch (error) {
-        log.warn("video start failed:", error instanceof Error ? error.message : error);
-        this.video = null;
+      // Video remains a best-effort sidecar; it never blocks the event recording.
+      if (config.video && this.deps.createVideoRecorder) {
+        this.video = this.deps.createVideoRecorder();
+        try {
+          await this.video.start(
+            store.dir,
+            options?.screenSourceId,
+            options?.screenDisplayId,
+          );
+        } catch (error) {
+          log.warn("video start failed:", error instanceof Error ? error.message : error);
+          this.video = null;
+        }
       }
-    }
 
-    // Initialize the audio utility for every session so the overlay can turn the
-    // mic on later. This does not request microphone access until enable().
-    if (this.deps.createAudioRecorder) {
-      this.audio = this.deps.createAudioRecorder((event) => this.onAudioCaptureEnded(event));
-      try {
-        await this.audio.start(store.dir, store.meta.startedAt, this.narrationLanguage);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        log.warn("microphone initialization failed:", message);
-        this.audio = null;
-        this.microphone = { state: "error", error: message, activeDevice: null };
+      // Initialize the audio utility for every session so the overlay can turn the
+      // mic on later. This does not request microphone access until enable().
+      if (this.deps.createAudioRecorder) {
+        this.audio = this.deps.createAudioRecorder((event) => this.onAudioCaptureEnded(event));
+        try {
+          await this.audio.start(store.dir, store.meta.startedAt, this.narrationLanguage);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          log.warn("microphone initialization failed:", message);
+          this.audio = null;
+          this.microphone = { state: "error", error: message, activeDevice: null };
+        }
       }
-    }
 
-    if (options?.narration && this.audio) {
-      await this.setMicrophoneInternal(
-        true,
-        options.microphoneDeviceId ?? SYSTEM_DEFAULT_MICROPHONE_ID,
-      );
+      if (options?.narration && this.audio) {
+        await this.setMicrophoneInternal(
+          true,
+          options.microphoneDeviceId ?? SYSTEM_DEFAULT_MICROPHONE_ID,
+        );
+      }
+    } catch (error) {
+      // Startup failed after the store was attached; roll back to idle instead of
+      // wedging the machine in "starting" (which would reject every later start()).
+      const message = error instanceof Error ? error.message : String(error);
+      log.warn("recording startup failed:", message);
+      await this.rollbackFailedStart(store);
+      return { ok: false, error: message };
     }
 
     this.transition = "none";
     this.emit();
     return { ok: true, sessionId: store.meta.id };
+  }
+
+  /**
+   * Best-effort teardown when startInternal() throws after the store is attached.
+   * Releases every producer and the event stream, then resets the machine to idle
+   * so a subsequent start() can succeed.
+   */
+  private async rollbackFailedStart(store: SessionStore): Promise<void> {
+    try {
+      await this.host.stopAll();
+    } catch (error) {
+      log.warn("collector rollback failed:", error instanceof Error ? error.message : error);
+    }
+    if (this.video) {
+      try {
+        await this.video.stop();
+      } catch (error) {
+        log.warn("video rollback failed:", error instanceof Error ? error.message : error);
+      }
+      this.video = null;
+    }
+    if (this.audio) {
+      try {
+        await this.audio.disable();
+      } catch (error) {
+        log.warn("microphone rollback failed:", error instanceof Error ? error.message : error);
+      }
+      this.audio = null;
+    }
+    this.bus.detach();
+    try {
+      store.finalize(Date.now());
+    } catch (error) {
+      log.warn(
+        "session cleanup after failed start failed:",
+        error instanceof Error ? error.message : error,
+      );
+      store.dispose();
+    }
+    this.store = null;
+    this.activeCollectors = [];
+    this.microphone = { state: "off", error: null, activeDevice: null };
+    this.transition = "none";
+    this.emit();
   }
 
   private async setMicrophoneInternal(
@@ -440,7 +501,11 @@ export class RecorderController {
 
     // Stop producers before finalizing the event stream. Audio is flushed before
     // video so the mic-off boundary is anchored as close as possible to the click.
-    await this.host.stopAll();
+    try {
+      await this.host.stopAll();
+    } catch (error) {
+      log.warn("collector stop failed:", error instanceof Error ? error.message : error);
+    }
     if (this.audio) {
       try {
         await this.audio.disable();
@@ -471,8 +536,18 @@ export class RecorderController {
 
     this.bus.publish({ type: EventType.SessionStop, source: "recorder", payload: {} });
     this.bus.detach();
-    store.finalize(Date.now());
-    await store.whenClosed();
+    // A finalize failure (disk full, session dir removed) must not wedge the state
+    // machine in "stopping": capture it, release the stream, and fall through to a
+    // clean idle state below so the recorder can start again.
+    let finalizeError: string | null = null;
+    try {
+      store.finalize(Date.now());
+      await store.whenClosed();
+    } catch (error) {
+      finalizeError = error instanceof Error ? error.message : String(error);
+      log.warn("session finalization failed:", finalizeError);
+      store.dispose();
+    }
     this.microphone = { state: "off", error: null, activeDevice: null };
 
     if (intent === "discard") {
@@ -515,6 +590,13 @@ export class RecorderController {
     this.emit();
     // Frames + correlation run in the background so the UI returns promptly.
     this.schedulePostProcess(store.dir);
+    if (finalizeError) {
+      return {
+        ok: false,
+        sessionId: store.meta.id,
+        error: `Recording stopped, but finalizing its files failed: ${finalizeError}`,
+      };
+    }
     return { ok: true, sessionId: store.meta.id, sessionDir: store.dir };
   }
 

@@ -4,6 +4,9 @@ import path from "node:path";
 import { app } from "electron";
 
 import type { RecEvent, SessionMeta } from "../../common/types";
+import { createLogger } from "../logger";
+
+const log = createLogger("SessionStore");
 
 /** Root folder that holds one sub-directory per recorded session. */
 export function sessionsRoot(): string {
@@ -50,12 +53,20 @@ export class SessionStore {
   private readonly startMonotonic: number;
   private readonly closed: Promise<void>;
   private count = 0;
+  private streamError: Error | null = null;
 
   constructor(meta: SessionMeta) {
     this.meta = meta;
     this.dir = path.join(sessionsRoot(), meta.id);
     mkdirSync(path.join(this.dir, "frames"), { recursive: true });
     this.eventsStream = createWriteStream(path.join(this.dir, "events.jsonl"), { flags: "a" });
+    // Own the stream's failures: a Writable with no 'error' listener rethrows the
+    // error as an uncaught exception, which crashes the whole main process (and the
+    // recording in progress). Capture it instead so callers can react.
+    this.eventsStream.on("error", (err) => {
+      this.streamError = err instanceof Error ? err : new Error(String(err));
+      log.error("events stream write failed:", this.streamError.message);
+    });
     this.closed = new Promise<void>((resolve) => {
       this.eventsStream.once("close", () => resolve());
     });
@@ -65,6 +76,11 @@ export class SessionStore {
 
   get eventCount(): number {
     return this.count;
+  }
+
+  /** The first error the events stream reported, if any. */
+  get writeError(): Error | null {
+    return this.streamError;
   }
 
   /** Resolves once the events stream has fully flushed to disk (after finalize). */
@@ -94,5 +110,10 @@ export class SessionStore {
     this.meta.stoppedAt = stoppedAt;
     this.writeMeta();
     this.eventsStream.end();
+  }
+
+  /** Force-release the events stream — used to recover from a finalize failure. */
+  dispose(): void {
+    this.eventsStream.destroy();
   }
 }

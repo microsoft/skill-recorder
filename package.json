@@ -1,6 +1,6 @@
 {
   "name": "skill-recorder",
-  "version": "0.3.1",
+  "version": "0.5.0",
   "description": "Records a user's on-screen work session and derives a structured description for building AI-agent skills.",
   "author": "Skill Recorder contributors",
   "repository": "github:microsoft/skill-recorder",
@@ -8,43 +8,60 @@
   "private": true,
   "type": "module",
   "main": "dist-electron/main.js",
+  "engines": {
+    "node": ">=24.19.0 <25",
+    "npm": ">=11.17.0"
+  },
   "scripts": {
-    "dev": "vite",
-    "build:vite": "vite build",
-    "build": "tsc --noEmit && vite build",
+    "dev": "node scripts/run-reviewed-electron.mjs dev",
+    "build:vite": "vite build && node scripts/assert-catalogue-bundle-boundary.mjs",
+    "build": "tsc --noEmit && npm run build:vite",
+    "check:lockfile": "node scripts/check-lockfile-portability.mjs",
     "typecheck": "tsc --noEmit",
     "typecheck:evals": "tsc --noEmit -p evals/tsconfig.json",
-    "test": "node --experimental-transform-types --no-warnings --import ./evals/register.mjs --test common/audio.test.ts common/microphone.test.ts common/narration.test.ts electron/recording-controls-bounds.test.ts electron/recording-privacy.test.ts electron/recorder/controller.test.ts electron/frames/extractor.test.ts electron/narration/audio-analysis.test.ts electron/narration/analyze-gate.test.ts electron/narration/transcribe.test.ts electron/narration/whisper.test.ts electron/sessions.test.ts electron/debug-bundle.test.ts scripts/compliance.test.mjs",
+    "test": "node --experimental-transform-types --no-warnings --import ./evals/register.mjs --test evals/builder-imports.test.ts common/architecture-registry.test.ts electron/architectures/catalogue-registry.test.ts common/audio.test.ts common/microphone.test.ts common/screen.test.ts common/narration.test.ts common/sensitive.test.ts electron/recording-controls-bounds.test.ts electron/recorder-window-sizing.test.ts electron/recording-privacy.test.ts electron/crash-guards.test.ts electron/recorder/controller.test.ts electron/recorder/session-store.test.ts electron/frames/extractor.test.ts electron/narration/audio-analysis.test.ts electron/narration/analyze-gate.test.ts electron/narration/transcribe.test.ts electron/narration/whisper.test.ts electron/sensitive/scanner.test.ts electron/sensitive/secrets.test.ts electron/sensitive/tessdata-source.test.ts electron/sensitive/ocr.test.ts electron/sensitive/frame-redact.test.ts electron/sensitive/frame-heuristics.test.ts electron/sessions.test.ts electron/debug-bundle.test.ts electron/skillbuilder/placement.test.ts src/skill-placement.test.ts scripts/compliance.test.mjs",
     "eval": "node --experimental-transform-types --no-warnings --import ./evals/register.mjs evals/run.ts",
     "eval:builder": "node --experimental-transform-types --no-warnings --import ./evals/register.mjs evals/builder/run.ts",
     "eval:skill": "node --experimental-transform-types --no-warnings --import ./evals/register.mjs evals/skillbuilder/run.ts",
+    "eval:sensitive": "node --experimental-transform-types --no-warnings --import ./evals/register.mjs evals/sensitive/run.ts",
+    "eval:sensitive:ocr": "node --experimental-transform-types --no-warnings --import ./evals/register.mjs evals/sensitive/ocr-images.ts",
+    "eval:sensitive:realistic": "node --experimental-transform-types --no-warnings --import ./evals/register.mjs evals/sensitive/ocr-realistic.ts",
+    "electron:install-reviewed": "node scripts/install-reviewed-electron.mjs",
     "compliance:licenses": "node scripts/prepare-compliance.mjs --licenses-only",
     "compliance:prepare": "node scripts/prepare-compliance.mjs",
     "compliance:review": "node scripts/review-compliance-sources.mjs",
     "compliance:test": "node --test scripts/compliance.test.mjs",
-    "dist": "npm run compliance:prepare && node scripts/assert-generic-dist-platform.mjs && vite build && electron-builder --publish never",
-    "dist:win:x64": "npm run compliance:prepare && node scripts/assert-native-windows-arch.mjs x64 && vite build && electron-builder --config.npmRebuild=false --publish never --win nsis --x64",
-    "dist:win:arm64": "npm run compliance:prepare && node scripts/assert-native-windows-arch.mjs arm64 && vite build && electron-builder --config.npmRebuild=false --publish never --win nsis --arm64",
-    "dist:portable:mac": "npm run compliance:prepare && vite build && electron-builder --publish never --mac zip",
-    "dist:portable:win": "npm run compliance:prepare && node scripts/assert-native-windows-arch.mjs x64 && vite build && electron-builder --config.npmRebuild=false --publish never --win portable --x64",
-    "start": "electron ."
+    "fix:lockfile-registry": "node scripts/check-lockfile-portability.mjs --fix",
+    "dist": "npm run compliance:prepare && node scripts/assert-generic-dist-platform.mjs && npm run build:vite && electron-builder --publish never",
+    "dist:win:x64": "npm run compliance:prepare && node scripts/assert-native-windows-arch.mjs x64 && npm run build:vite && electron-builder --config.npmRebuild=false --publish never --win nsis --x64",
+    "dist:win:arm64": "npm run compliance:prepare && node scripts/assert-native-windows-arch.mjs arm64 && npm run build:vite && electron-builder --config.npmRebuild=false --publish never --win nsis --arm64",
+    "dist:portable:mac": "npm run compliance:prepare && npm run build:vite && electron-builder --publish never --mac zip",
+    "dist:portable:win": "npm run compliance:prepare && node scripts/assert-native-windows-arch.mjs x64 && npm run build:vite && electron-builder --config.npmRebuild=false --publish never --win portable --x64",
+    "start": "node scripts/run-reviewed-electron.mjs start"
   },
   "dependencies": {
     "@github/copilot-sdk": "^1.0.6",
     "@huggingface/transformers": "^4.2.0",
-    "archiver": "^7.0.1",
+    "@secretlint/core": "^13.0.4",
+    "@secretlint/secretlint-rule-pattern": "^13.0.4",
+    "@secretlint/secretlint-rule-preset-recommend": "^13.0.4",
+    "archiver": "^8.0.0",
     "koffi": "^3.1.1",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "sharp": "^0.35.3",
+    "tesseract.js": "^7.0.0",
+    "tesseract.js-core": "^7.0.0",
     "zod": "^4.3.6"
   },
   "optionalDependencies": {
     "get-windows": "^9.3.0"
   },
   "devDependencies": {
+    "@electron-internal/extract-zip": "1.0.4",
     "@electron/asar": "^3.4.1",
-    "@types/archiver": "^6.0.4",
+    "@electron/get": "5.0.0",
+    "@types/archiver": "^8.0.0",
     "@types/node": "^22.10.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
@@ -59,8 +76,17 @@
   "overrides": {
     "adm-zip": "$adm-zip",
     "fast-uri": "^3.1.4",
+    "global-agent": "^4.1.3",
     "sharp": "$sharp",
     "tar": "^7.5.21"
+  },
+  "allowScripts": {
+    "electron-winstaller": false,
+    "get-windows@9.3.0": true,
+    "koffi@3.1.1": true,
+    "onnxruntime-node@1.24.3": true,
+    "protobufjs": false,
+    "tesseract.js": false
   },
   "build": {
     "appId": "com.skillrecorder.app",
@@ -95,7 +121,9 @@
       "node_modules/@koromix/**",
       "node_modules/@github/copilot-*/**",
       "node_modules/@huggingface/transformers/**",
-      "node_modules/onnxruntime-node/**"
+      "node_modules/onnxruntime-node/**",
+      "node_modules/tesseract.js/**",
+      "node_modules/tesseract.js-core/**"
     ],
     "mac": {
       "icon": "build/icon.png",

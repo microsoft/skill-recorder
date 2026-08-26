@@ -23,7 +23,8 @@ if ($parseErrors.Count -ne 0) {
 $helperNames = @(
   "ConvertTo-ExtendedLengthPath",
   "Move-DirectoryTree",
-  "Remove-DirectoryTree"
+  "Remove-DirectoryTree",
+  "Resolve-MachineNpmConfigPath"
 )
 $functionDefinitions = @(
   $installerAst.FindAll(
@@ -48,6 +49,40 @@ $helperSource = @(
 $uncPath = ConvertTo-ExtendedLengthPath -Path "\\server\share\folder"
 if ($uncPath -ne "\\?\UNC\server\share\folder") {
   throw "Extended-length UNC conversion returned an unexpected path: $uncPath"
+}
+
+$npmConfigRoot = Join-Path (
+  [IO.Path]::GetTempPath()
+) ("skill-recorder-npmrc-" + [guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Path $npmConfigRoot -Force | Out-Null
+try {
+  $machineNpmrc = Join-Path $npmConfigRoot "npmrc"
+  Set-Content -LiteralPath $machineNpmrc -Value "registry=https://example.invalid/npm/" -Encoding ASCII
+  $missingNpmrc = Join-Path $npmConfigRoot "missing\npmrc"
+
+  $resolved = Resolve-MachineNpmConfigPath -CandidatePaths @($missingNpmrc, $machineNpmrc)
+  if ($resolved -ne [IO.Path]::GetFullPath($machineNpmrc)) {
+    throw "Resolve-MachineNpmConfigPath skipped the existing npmrc: $resolved"
+  }
+
+  # npm prints "undefined" when no global config is configured; it is not a path.
+  $placeholders = Resolve-MachineNpmConfigPath -CandidatePaths @("undefined", "null", "", $null)
+  if ($null -ne $placeholders) {
+    throw "Resolve-MachineNpmConfigPath accepted a placeholder value: $placeholders"
+  }
+
+  # Installs on machines without any npm configuration must stay on the default registry.
+  $absent = Resolve-MachineNpmConfigPath -CandidatePaths @($missingNpmrc)
+  if ($null -ne $absent) {
+    throw "Resolve-MachineNpmConfigPath returned a nonexistent npmrc: $absent"
+  }
+
+  $quoted = Resolve-MachineNpmConfigPath -CandidatePaths @(('"' + $machineNpmrc + '" '))
+  if ($quoted -ne [IO.Path]::GetFullPath($machineNpmrc)) {
+    throw "Resolve-MachineNpmConfigPath did not normalize a quoted npm path: $quoted"
+  }
+} finally {
+  Remove-Item -LiteralPath $npmConfigRoot -Recurse -Force
 }
 
 $testRoot = Join-Path (
@@ -92,8 +127,63 @@ try {
   if ([IO.Directory]::Exists((ConvertTo-ExtendedLengthPath -Path $destinationDirectory))) {
     throw "Remove-DirectoryTree left the destination directory behind."
   }
+  $lockedSourceDirectory = Join-Path $testRoot "locked-source"
+  $lockedDestinationDirectory = Join-Path $testRoot "locked-destination"
+  $lockedFile = Join-Path $lockedSourceDirectory "scanned.exe"
+  $readyFile = Join-Path $testRoot "locker-ready"
+  [IO.Directory]::CreateDirectory($lockedSourceDirectory) | Out-Null
+  [IO.File]::WriteAllText($lockedFile, "endpoint scanner simulation")
+
+  $escapedLockedFile = $lockedFile.Replace("'", "''")
+  $escapedReadyFile = $readyFile.Replace("'", "''")
+  $lockerSource = @"
+`$stream = [IO.File]::Open(
+  '$escapedLockedFile',
+  [IO.FileMode]::Open,
+  [IO.FileAccess]::Read,
+  [IO.FileShare]::Read
+)
+try {
+  [IO.File]::WriteAllText('$escapedReadyFile', 'ready')
+  Start-Sleep -Milliseconds 500
+} finally {
+  `$stream.Dispose()
+}
+"@
+  $encodedLockerSource = [Convert]::ToBase64String(
+    [Text.Encoding]::Unicode.GetBytes($lockerSource)
+  )
+  $powerShellExecutable = [Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+  $locker = Start-Process `
+    -FilePath $powerShellExecutable `
+    -ArgumentList @("-NoProfile", "-NonInteractive", "-EncodedCommand", $encodedLockerSource) `
+    -PassThru
+  try {
+    $readyDeadline = (Get-Date).AddSeconds(10)
+    while (-not [IO.File]::Exists($readyFile)) {
+      if ((Get-Date) -ge $readyDeadline -or $locker.HasExited) {
+        throw "The directory-lock test helper did not become ready."
+      }
+      Start-Sleep -Milliseconds 25
+    }
+
+    Move-DirectoryTree `
+      -Source $lockedSourceDirectory `
+      -Destination $lockedDestinationDirectory `
+      -MaxAttempts 6 `
+      -RetryDelayMilliseconds 100
+    if (-not [IO.Directory]::Exists($lockedDestinationDirectory)) {
+      throw "Move-DirectoryTree did not recover from a transient file lock."
+    }
+  } finally {
+    if (-not $locker.HasExited) {
+      Stop-Process -Id $locker.Id -Force
+      $locker.WaitForExit()
+    }
+    $locker.Dispose()
+  }
 } finally {
   Remove-DirectoryTree -Path $testRoot
 }
 
-Write-Host "Windows installer long-path tests passed."
+Write-Host "Windows installer filesystem tests passed."

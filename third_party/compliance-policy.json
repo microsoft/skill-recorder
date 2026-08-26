@@ -32,12 +32,43 @@
   "sharpLibvips": {
     "version": "1.3.2"
   },
+  "secretlint": "13.0.4",
+  "artisticPackages": {
+    "binaryextensions": "6.11.0",
+    "editions": "6.22.0",
+    "istextorbinary": "9.5.0",
+    "textextensions": "6.11.0",
+    "version-range": "4.15.0"
+  },
+  "tesseract": {
+    "jsVersion": "7.0.0",
+    "coreVersion": "7.0.0",
+    "sourceRevisions": {
+      "core": "acffef2b66eb44a31df297e11d905f4b39001068",
+      "giflib": "fa37672085ce4b3d62c51627ab3c8cf2dda8009a",
+      "leptonica": "4af068b56a9674da915debea4ed7e1b9885b17e8",
+      "libjpeg": "6c0fcb8ddee365e7abc4d332662b06900612e923",
+      "libpng": "a37d4836519517bdce6cb9d956092321eca3e73b",
+      "libtiff": "b51bb157123264e26d34c09cc673d213aea61fc7",
+      "libwebp": "20ef03ee351d4ff03fc5ff3ec4804a879d1b9d5c",
+      "openlibm": "ae2d91698508701c83cab83714d42a1146dccf85",
+      "tesseract": "2a9c1c49c360462733c386d2a44fcd22c4e21411",
+      "zlib": "21767c654d31d2dccdde4330529775c6c5fd5389"
+    },
+    "tessdata": {
+      "revision": "65727574dfcd264acbb0c3e07860e4e9e9b22185",
+      "files": {
+        "eng.traineddata": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2"
+      }
+    }
+  },
   "onnxruntime": {
     "1.24.3": "v1.24.3",
     "1.24.0-dev.20251116-b39e144322": "b39e144322",
     "1.26.0-dev.20260416-b7804b056c": "b7804b056c"
   },
   "remoteMaterials": {
+    "artistic-2.0": "bae466ac8d7100c304fe76632ccc627203a3897d3f7166f3cce00fb9df8c2074",
     "gpl-3.0": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
     "lgpl-2.1": "a9bdde5616ecdd1e980b44f360600ee8783b1f99b8cc83a2beb163a0a390e861",
     "lgpl-3.0": "a853c2ffec17057872340eee242ae4d96cbf2b520ae27d903e1b2fef1a5f9d1c",
@@ -47,7 +78,17 @@
     "onnxruntime-1.24.3-license": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
     "onnxruntime-1.24.3-notices": "0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2",
     "onnxruntime-1.26.0-dev.20260416-b7804b056c-license": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
-    "onnxruntime-1.26.0-dev.20260416-b7804b056c-notices": "0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2"
+    "onnxruntime-1.26.0-dev.20260416-b7804b056c-notices": "0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2",
+    "tessdata-fast-license": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "tesseract-core-giflib-license": "0c9b7990ecdca88b676db232c226548ac408b279f550d424d996f0d83591dd8e",
+    "tesseract-core-leptonica-license": "87829abb5bbb00b55a107365da89e9a33f86c4250169e5a1e5588505be7d5806",
+    "tesseract-core-libjpeg-license": "c791da525733040e622ed257c7b096b8f5191b332604ead0c6bc2b54cbd8e0d1",
+    "tesseract-core-libpng-license": "33ba4e187d8b0c8d7ab2bc2e522bb095219e03089e9aa0122b4fb9eb2b7de82b",
+    "tesseract-core-libtiff-license": "fbd6fed7938541d2c809c0826225fc85e551fdbfa8732b10f0c87e0847acafd7",
+    "tesseract-core-libwebp-license": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf",
+    "tesseract-core-openlibm-license": "b1843fbf5b03f519a5f0a44fce751bdd1022ae7148614923f9d6293e17a18b17",
+    "tesseract-core-tesseract-license": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "tesseract-core-zlib-license": "fc2c3368901700f0acdeb1d8afeaca5923296768ec6824ecdf627aac396001fd"
   },
   "sourceCommits": {
     "mozjpeg@0826579": "08265790774cd0714832c9e675522acbe5581437",
@@ -103,6 +144,21 @@
     "sharp-patch-glib-without-gregex": "b1f2930a11292e529de137c7eb723850e0cc0969b1a2b0358196389312acd272",
     "sharp-patch-libvips-soversion": "256b7d6f8c973bb53b20cff5171c7117d6b35d3aa4e72d22cb906f4fe1e2c890",
     "sharp-patch-mozjpeg-simd-fdct": "a65f87cadf3a6052e44d6314c906f6e2891352f82646b8a6f0b8fcf2c1891e7c",
-    "sharp-patch-uhdr-platform-detection": "e0106f9458626f6745a9a9a3841478b7a42f6905f67373d19f6f9b897c33ada5"
+    "sharp-patch-uhdr-platform-detection": "e0106f9458626f6745a9a9a3841478b7a42f6905f67373d19f6f9b897c33ada5",
+    "npm-source-binaryextensions@6.11.0": "52904eaa521067a062c75c601b47eb055474298ade50d6509458cd3157eb01bd",
+    "npm-source-editions@6.22.0": "ad07726331c2c4ffe29ff4d6744dcbae664ec4693a1b73c54be1b6835a79272e",
+    "npm-source-istextorbinary@9.5.0": "9a37f144a9742a1d2bac9fb5abff38009406b3e0d4abf6ab5a8369b09c44ef1a",
+    "npm-source-textextensions@6.11.0": "76194efbd484b3ac3be4cdc0d649ba8b9c0e154a53062ac067348e469cc66c09",
+    "npm-source-version-range@4.15.0": "fe26fd34a2432f197b89833c8e1e2807b1a7bec17cd8a7fb27956bab251a6d1a",
+    "tesseract-js-core@7.0.0": "b1af71435fc45cd5d9f3f9342b28f2ba649de4661a0fb2933da727a5648be262",
+    "tesseract-core-giflib@fa37672085ce4b3d62c51627ab3c8cf2dda8009a": "99067b2e3f4bfc3b95770a56e9def1daac843ecb6be5480cb776757b606ac076",
+    "tesseract-core-leptonica@4af068b56a9674da915debea4ed7e1b9885b17e8": "f889351f7df174ae9c15f27784b106310a1356d9152537543a334df08fd92961",
+    "tesseract-core-libjpeg@6c0fcb8ddee365e7abc4d332662b06900612e923": "79b3dc9496f015a5562f9170aabd0526b3efc5b5b8f71d9379c54d4d882a6099",
+    "tesseract-core-libpng@a37d4836519517bdce6cb9d956092321eca3e73b": "2429c23e583db954e5f8e8b92638a118bb8902f4d993ecfe0ce34b8afd05f507",
+    "tesseract-core-libtiff@b51bb157123264e26d34c09cc673d213aea61fc7": "e1e754ed88de9370637aecf75f36e31d77adccf6c0fab441816895dc92975a12",
+    "tesseract-core-libwebp@20ef03ee351d4ff03fc5ff3ec4804a879d1b9d5c": "397362f82d42c5577705979557f08d611d86e07abcaeeb66b78629df587f1df7",
+    "tesseract-core-openlibm@ae2d91698508701c83cab83714d42a1146dccf85": "7994b52a180357322559cafb745f03c5c1ee8f2f38c28bad1e224ce2a0221d7f",
+    "tesseract-core-tesseract@2a9c1c49c360462733c386d2a44fcd22c4e21411": "e021944185ecb88c2f003e706b5c416e7bef6074d4d8be39f6c98fe0695b24a8",
+    "tesseract-core-zlib@21767c654d31d2dccdde4330529775c6c5fd5389": "f1cdebb848d8110eba6773a481fd92cd34104f4b27deac5f7cf59b445a05f857"
   }
 }

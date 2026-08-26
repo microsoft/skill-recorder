@@ -108,6 +108,22 @@ checksum_from_manifest() {
   awk -v name="$file_name" '$2 == name || $2 == "*" name { print tolower($1); exit }' "$manifest"
 }
 
+detect_machine_npm_config() {
+  # The portable Node.js archive ships no builtin npmrc, so npm resolves its
+  # global config inside the throwaway runtime directory and silently ignores a
+  # registry configured for this machine. Capture the real path before the
+  # portable runtime is prepended to PATH so mirrored registries keep working.
+  local candidate=""
+  if have npm; then
+    candidate="$(npm config get globalconfig 2>/dev/null | tail -n 1 | tr -d '\r')" || candidate=""
+  fi
+  case "$candidate" in
+    ""|undefined|null) return 0 ;;
+  esac
+  [ -f "$candidate" ] || return 0
+  printf '%s' "$candidate"
+}
+
 install_node_runtime() {
   local channel="https://nodejs.org/dist/latest-v24.x"
   local sums="$WORK_DIR/node-SHASUMS256.txt"
@@ -186,6 +202,9 @@ required_install_files() {
   local files="
 LICENSE
 THIRD-PARTY-NOTICES.md
+scripts/check-lockfile-portability.mjs
+scripts/install-reviewed-electron.mjs
+scripts/run-reviewed-electron.mjs
 third_party/compliance-policy.json
 node_modules/@github/copilot/LICENSE.md
 node_modules/$copilot_package/LICENSE.md
@@ -260,15 +279,40 @@ build_source_install() {
   tar -xzf "$archive" --strip-components=1 -C "$STAGING_DIR"
 
   cd "$STAGING_DIR"
-  export NPM_CONFIG_REGISTRY="https://registry.npmjs.org/"
   export NPM_CONFIG_CACHE="$INSTALL_ROOT/npm-cache"
-  export ELECTRON_MIRROR="https://github.com/electron/electron/releases/download/"
+  unset NPM_CONFIG_ALLOW_SCRIPTS npm_config_allow_scripts
 
-  info "Installing lockfile-pinned dependencies from their publishers."
-  "$NPM" ci --no-audit --no-fund
+  if [ -n "${MACHINE_NPM_CONFIG:-}" ]; then
+    info "Applying this machine's npm configuration from $MACHINE_NPM_CONFIG."
+    export NPM_CONFIG_GLOBALCONFIG="$MACHINE_NPM_CONFIG"
+  fi
 
-  info "Installing the reviewed Electron runtime."
-  "$NODE" "node_modules/electron/install.js"
+  info "Validating portable dependency policy."
+  local npm_version
+  npm_version="$("$NPM" --version)" || die "Could not determine the bundled npm version."
+  "$NODE" "scripts/check-lockfile-portability.mjs" --npm-version "$npm_version"
+
+  info "Installing lockfile-pinned dependencies through the configured npm registry. Deprecation notices from transitive tooling do not by themselves mean installation failed."
+  local effective_registry
+  effective_registry="$("$NPM" config get registry 2>/dev/null | tail -n 1 | tr -d '\r')" ||
+    effective_registry=""
+  [ -n "$effective_registry" ] || effective_registry="the configured npm registry"
+  info "Dependencies will be downloaded from $effective_registry."
+
+  "$NPM" ci \
+    --no-audit \
+    --no-fund \
+    --ignore-scripts=false \
+    --dangerously-allow-all-scripts=false \
+    --strict-allow-scripts ||
+    die "$(
+      printf '%s' \
+        "npm ci failed. Dependencies were requested from $effective_registry. " \
+        "If your network blocks that registry, configure a compatible mirror for this " \
+        "machine with 'npm config set registry <url> --location=global' and run the " \
+        "installer again. The lockfile's integrity hashes are verified whichever " \
+        "registry serves the packages."
+    )"
 
   local policy_key="$PLATFORM-$ARCHITECTURE"
   local electron_version reviewed_hash
@@ -303,6 +347,19 @@ build_source_install() {
   )"
   [ "$bundled_hash" = "$reviewed_hash" ] ||
     die "Electron's installed checksum manifest differs from the reviewed compliance policy."
+
+  info "Downloading the checksummed Electron runtime from GitHub."
+  local electron_download="$WORK_DIR/$electron_archive"
+  download \
+    "https://github.com/electron/electron/releases/download/v${electron_version}/${electron_archive}" \
+    "$electron_download"
+  [ "$(sha256_file "$electron_download")" = "$reviewed_hash" ] ||
+    die "Electron archive SHA-256 does not match the reviewed distribution hash."
+  "$NODE" "scripts/install-reviewed-electron.mjs" \
+    --archive "$electron_download" \
+    --platform "$PLATFORM" \
+    --arch "$ARCHITECTURE"
+
   [ "$(cat node_modules/electron/dist/version)" = "$electron_version" ] ||
     die "The installed Electron runtime version is not $electron_version."
 
@@ -447,6 +504,8 @@ write_launcher() {
     write_macos_app "$launcher"
   fi
 }
+
+MACHINE_NPM_CONFIG="$(detect_machine_npm_config)"
 
 install_node_runtime
 

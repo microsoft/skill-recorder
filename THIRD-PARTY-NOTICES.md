@@ -11,7 +11,7 @@ Electron's exact notices are retained under `resources/compliance/electron/`;
 platforms that preserve Electron's root notice files carry those copies too.
 
 The dependency tree is otherwise permissive (MIT, ISC, Apache-2.0, BSD,
-BlueOak-1.0.0) and compatible with distributing this application under MIT.
+Artistic-2.0, BlueOak-1.0.0) and compatible with distributing this application under MIT.
 Those components remain under their own terms; the generated
 `THIRD-PARTY-LICENSES.txt` preserves their license and attribution text.
 
@@ -30,6 +30,18 @@ Those components remain under their own terms; the generated
   code and model weights are released under the **MIT License**. The downloaded
   model remains subject to its publisher's applicable terms and does not change
   Skill Recorder's MIT license.
+
+### Tesseract English language data — `tessdata_fast/eng.traineddata`
+- Advanced protection downloads the English OCR data directly from
+  [`tesseract-ocr/tessdata_fast`](https://github.com/tesseract-ocr/tessdata_fast)
+  only when OCR is enabled; it is not bundled with Skill Recorder.
+- The file is pinned to commit
+  [`65727574dfcd264acbb0c3e07860e4e9e9b22185`](https://github.com/tesseract-ocr/tessdata_fast/tree/65727574dfcd264acbb0c3e07860e4e9e9b22185)
+  and SHA-256
+  `7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2`.
+- The language data is Apache-2.0. Its exact license is retained under
+  `resources/compliance/tesseract-core/`, even though the model is fetched
+  from its publisher rather than redistributed in the application.
 
 ## Bundled runtime components
 
@@ -93,12 +105,34 @@ packages omit standalone license and third-party-notice files, so exact notices
 from each pinned source revision are included under
 `resources/compliance/onnxruntime/`.
 
-### Copyleft release materials
+### Tesseract OCR WebAssembly — `tesseract.js` and `tesseract.js-core`
+
+- `tesseract.js@7.0.0` and `tesseract.js-core@7.0.0` are Apache-2.0.
+  Apache-2.0 does not require corresponding source, but it does require
+  retaining the license, copyright, and any applicable notices.
+- The packaged WebAssembly is built from
+  [`tesseract.js-core` commit `acffef2b66eb44a31df297e11d905f4b39001068`](https://github.com/naptha/tesseract.js-core/tree/acffef2b66eb44a31df297e11d905f4b39001068).
+  Its build scripts statically link the pinned GIFLIB, Leptonica, IJG libjpeg,
+  libpng, libtiff, libwebp, OpenLibm, Tesseract, and zlib revisions recorded
+  in `SOURCE-MANIFEST.json`.
+- Exact upstream terms are retained under
+  `resources/compliance/tesseract-core/`; fixed source archives for the build
+  scripts and all nine linked projects are retained under
+  `resources/compliance/sources/`.
+- As required by the IJG terms: **This software is based in part on the work
+  of the Independent JPEG Group.**
+- OpenLibm's source tree contains LGPL-covered test files, but its static
+  library build does not compile or link those tests into the OCR WebAssembly.
+
+### Release source materials
 
 Redistributable builds include the complete GPL-3.0, LGPL-2.1, LGPL-3.0, and
 MPL-2.0 texts. They also include source archives for Electron's FFmpeg revision,
 Sharp, libvips, every library embedded in the Sharp native payload, the
 applicable packaging repositories, and all externally applied build patches.
+For reproducibility and notice preservation, the bundle also includes the
+fixed Tesseract.js-core build source, all statically linked OCR sources, and
+verbatim source packages for Artistic-2.0 dependencies.
 `SOURCE-MANIFEST.json` records the origin, version, SHA-256, and purpose of every
 file. Every remote payload is checked against a reviewed SHA-256 before use;
 the FFmpeg archive is deterministically generated from its pinned Git commit.
@@ -112,11 +146,20 @@ and explains how to rebuild and replace them.
 - `sharp` — Apache-2.0; see the Sharp/libvips section for native payload terms
 
 ## Apache-2.0 components
-Some dependencies (e.g. `sharp`) are Apache-2.0, which requires retaining their
+Some dependencies (including `sharp`, `tesseract.js`, and
+`tesseract.js-core`) are Apache-2.0, which requires retaining their
 copyright, license, and any `NOTICE` file contents. The release process collects
 these from the exact installed dependency tree into
 `resources/compliance/THIRD-PARTY-LICENSES.txt` and fails if any package lacks
 reviewed license material.
+
+## Artistic-2.0 components
+
+Secretlint's text-source handling introduces `binaryextensions`, `editions`,
+`istextorbinary`, `textextensions`, and `version-range` under Artistic-2.0.
+Redistributable builds retain their copyright notices, the complete
+Artistic-2.0 text under `resources/compliance/licenses/`, and verbatim source
+packages referenced by `SOURCE-MANIFEST.json`.
 
 ## Generating a complete license manifest
 To validate installed package notices without downloading corresponding source:

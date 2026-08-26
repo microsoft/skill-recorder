@@ -18,7 +18,7 @@ import { createLogger } from "../logger";
 import { copilotConnectionOption, withStartupTimeout } from "../copilot-cli-path";
 import { sessionsRoot, sessionDir, isValidSessionId } from "../recorder/session-store";
 import { DESCRIBER_INSTRUCTIONS } from "./instructions";
-import { createDescriberTools } from "./tools";
+import { createDescriberTools, type RedactionContext } from "./tools";
 
 const log = createLogger("Describer");
 
@@ -55,6 +55,8 @@ interface LiveSession {
   feedbackLog: Analysis["feedbackLog"];
   /** Mutable capture slot the `submit_analysis` tool writes into. */
   holder: { submission: AnalysisSubmission | undefined };
+  /** Mutable redaction slot; set per turn so tools mask outgoing data. */
+  redaction: { current: RedactionContext | null };
 }
 
 function readJson<T>(file: string): T | null {
@@ -94,13 +96,14 @@ export class Describer {
   constructor(private readonly emitProgress: (p: AnalyzeProgress) => void) {}
 
   /** First pass: reconstruct the session from scratch. */
-  async analyze(sessionId: string): Promise<Analysis> {
+  async analyze(sessionId: string, redaction?: RedactionContext): Promise<Analysis> {
     if (this.active.has(sessionId)) throw new Error("An analysis is already running for this session.");
     this.active.add(sessionId);
     try {
       this.emit(sessionId, "start", "Starting analysis…");
       await this.disposeLive(sessionId); // fresh conversation each explicit analyze
       const live = await this.createLive(sessionId);
+      live.redaction.current = redaction ?? null;
       return await this.runTurn(live, KICKOFF_PROMPT);
     } finally {
       this.active.delete(sessionId);
@@ -108,12 +111,13 @@ export class Describer {
   }
 
   /** Later pass: fold in NL feedback and revise holistically. */
-  async feedback(sessionId: string, fb: AnalysisFeedback): Promise<Analysis> {
+  async feedback(sessionId: string, fb: AnalysisFeedback, redaction?: RedactionContext): Promise<Analysis> {
     if (this.active.has(sessionId)) throw new Error("An analysis is already running for this session.");
     this.active.add(sessionId);
     try {
       this.emit(sessionId, "start", "Re-analyzing with your feedback…");
       const live = this.live.get(sessionId) ?? (await this.createLive(sessionId));
+      live.redaction.current = redaction ?? null;
       const prior = loadPersistedAnalysis(sessionId);
       // The feedback round is recorded in runTurn only after it produces a
       // revision, so a failed turn never leaves a phantom log entry.
@@ -239,11 +243,13 @@ export class Describer {
 
     const extractor = buildExtractor(dir);
     const holder: LiveSession["holder"] = { submission: undefined };
+    const redaction: LiveSession["redaction"] = { current: null };
 
     const tools = createDescriberTools({
       sessionDir: dir,
       startedAt: meta.startedAt,
       extractor,
+      redaction,
       onProgress: (m) => this.emit(sessionId, "working", m),
       onSubmit: (s) => {
         holder.submission = s;
@@ -277,6 +283,7 @@ export class Describer {
       revision: prior?.revision ?? 0,
       feedbackLog: prior?.feedbackLog ?? [],
       holder,
+      redaction,
     };
     this.live.set(sessionId, live);
     this.evictOverflow(sessionId);

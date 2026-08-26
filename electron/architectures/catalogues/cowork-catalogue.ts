@@ -1,3 +1,5 @@
+import { defineCatalogueProvider } from "../catalogue-provider";
+
 /**
  * A **static, versioned** snapshot of the Cowork (Microsoft 365 Copilot) agent's native
  * capabilities, embedded into the builder's system prompt. End users won't have the Cowork
@@ -132,7 +134,10 @@ ${COWORK_NATIVE_CAPABILITIES}
 - Keep it concise and imperative. Include a short "When to use" and the ordered steps.
 `.trim();
 
-/** The Cowork catalogue, or null. Exposed so {@link catalogueFor} can dispatch on it. */
-export function coworkCatalogue(): string {
-  return COWORK_CATALOGUE;
-}
+export default defineCatalogueProvider({
+  architecture: "cowork",
+  skill: {
+    version: COWORK_CATALOGUE_VERSION,
+    content: COWORK_CATALOGUE,
+  },
+});

@@ -1,16 +1,47 @@
 import { useEffect, useRef } from "react";
 
+import type { SensitiveModelStatus } from "../common/ipc";
+
+/** Human-readable status for the on-device protection model shown in the sheet. */
+function protectionModelNote(status: SensitiveModelStatus | null): string {
+  if (!status) return "Checking…";
+  switch (status.ocr) {
+    case "ready":
+      return "On-device model ready";
+    case "downloading":
+      return status.progress == null
+        ? "Setting up the on-device model…"
+        : `Setting up the on-device model… ${Math.round(status.progress)}%`;
+    case "error":
+      return "Couldn't set up the model";
+    default:
+      return "On-device model not set up yet";
+  }
+}
+
 /**
  * Plain-language disclosure of what the recorder captures, where it is stored,
  * and what leaves the machine on analysis. Every claim here is grounded in the
  * actual collectors and describer behavior, so it must be kept in sync with them.
+ *
+ * Also home to the Advanced-protection opt-out toggle: protection is on by default,
+ * and this sheet is where the user reviews what it does and turns it off if they
+ * don't want on-device screen-image scanning.
  */
 export function WhatsRecorded({
   onClose,
   onReviewed,
+  sensitive,
+  advancedPending,
+  onToggleAdvanced,
+  onDownload,
 }: {
   onClose: () => void;
   onReviewed: () => void;
+  sensitive: SensitiveModelStatus | null;
+  advancedPending: boolean;
+  onToggleAdvanced: () => void;
+  onDownload: () => void;
 }) {
   const sheetRef = useRef<HTMLDivElement>(null);
 
@@ -22,6 +53,11 @@ export function WhatsRecorded({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  const advancedOn = sensitive?.enabled ?? true;
+  const showModelError = advancedOn && sensitive?.ocr === "error";
+  const showDownloadAction =
+    advancedOn && (sensitive?.ocr === "error" || sensitive?.ocr === "missing");
 
   return (
     <div className="sheet-backdrop" onClick={onClose}>
@@ -67,7 +103,7 @@ export function WhatsRecorded({
             <li>Which apps you switch to, and their window and document titles.</li>
             <li>Web addresses of the pages you open.</li>
             <li>A short preview of text you copy, up to 120 characters.</li>
-            <li>A silent video of your screen at a low frame rate.</li>
+            <li>A silent video of the screen you select, at a low frame rate.</li>
           </ul>
           <p className="sheet-caution">
             Do not type, paste, display, copy, or narrate passwords, access tokens, API keys,
@@ -95,7 +131,7 @@ export function WhatsRecorded({
               timeline.
             </li>
             <li>
-              The recording can be turned into text on this computer using an offline model. The
+              The recording can be turned into text on this computer using an on-device model. The
               transcript stays in the language you select from Whisper's 99 supported choices. The
               first transcription needs a one-time ~252 MB download that you choose when to start.
             </li>
@@ -116,11 +152,71 @@ export function WhatsRecorded({
           <ul>
             <li>Nothing leaves your computer while you record.</li>
             <li>
-              When you choose Analyze, the event timeline—including window and document titles,
-              URLs, and clipboard previews—plus extracted screen images and narration text (if
-              recorded) are sent to GitHub&apos;s cloud service and processed by GitHub Copilot.
+              When you choose Analyze, the event timeline (window and document titles, URLs, and
+              clipboard previews), plus screen images and narration text if recorded, are sent to
+              GitHub&apos;s cloud service and processed by GitHub Copilot.
+            </li>
+            <li>
+              By default, before anything is sent, this computer hides sensitive details like
+              passwords, keys, emails, and card or ID numbers from that text and from your screen
+              images. You can turn this off below.
             </li>
           </ul>
+        </section>
+
+        <section className={`sheet-block sheet-advp ${advancedOn ? "on" : ""}`}>
+          <div className="sheet-advp-head">
+            <div className="sheet-advp-copy">
+              <h3>Advanced protection</h3>
+              <p className="sheet-note">
+                On by default. Before your recording is analyzed, it checks the text and your screen
+                images on this computer and hides sensitive details. Turn it off to send everything
+                as recorded.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="sheet-switch-btn"
+              role="switch"
+              aria-checked={advancedOn}
+              aria-busy={advancedPending}
+              aria-label="Advanced protection"
+              disabled={advancedPending}
+              onClick={onToggleAdvanced}
+            >
+              <span className={`sheet-switch ${advancedOn ? "on" : ""}`} aria-hidden>
+                <span className="sheet-switch-knob" />
+              </span>
+            </button>
+          </div>
+          {advancedOn && (
+            <>
+              <ul>
+                <li>
+                  It hides sensitive details like passwords, keys, emails, and card or ID numbers,
+                  both in the text that is sent (including narration) and in your screen images.
+                </li>
+                <li>
+                  Turning it off sends your recording as recorded. That can make the analysis more
+                  accurate, but nothing is hidden, so only do it when the recording has nothing
+                  sensitive.
+                </li>
+                <li>It all runs on this computer.</li>
+              </ul>
+              <div className={`sheet-advp-status ${showModelError ? "is-error" : ""}`}>
+                <span className="sheet-advp-model">{protectionModelNote(sensitive)}</span>
+                {showDownloadAction && (
+                  <button type="button" className="sheet-advp-download" onClick={onDownload}>
+                    {sensitive?.ocr === "error" ? "Retry" : "Set up now"}
+                  </button>
+                )}
+              </div>
+              <p className="sheet-caution">
+                No method is 100% effective. It can miss details or mask the wrong ones. Treat it as
+                a safety net, not a guarantee, and still avoid capturing anything secret.
+              </p>
+            </>
+          )}
         </section>
 
         <section className="sheet-block">

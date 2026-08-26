@@ -7,6 +7,7 @@ import { approveAll, type CopilotSession } from "@github/copilot-sdk";
 import {
   BuiltSkillSchema,
   renderSkillMarkdown,
+  requireTargetPlacement,
   SkillPlanSchema,
   slugifySkillName,
   toBuiltSkill,
@@ -17,13 +18,13 @@ import {
 } from "../../common/skill";
 import { unresolvedTokens } from "../../common/values";
 import type { SkillBuildInput, SkillBuildProgress } from "../../common/ipc";
+import { requireCatalogue } from "../architectures/catalogue-registry";
 import { AgentBuilder, type BaseLive } from "../builders/agent-builder";
 import { createReadTools } from "../builders/read-tools";
 import { loadPersistedAnalysis } from "../describer/describer";
 import { createLogger } from "../logger";
 import { isValidSessionId, sessionDir } from "../recorder/session-store";
 import { SKILL_BUILDER_INSTRUCTIONS } from "./instructions";
-import { catalogueFor } from "./scout-catalog";
 import { createSkillBuilderTools } from "./tools";
 
 const log = createLogger("SkillBuilder");
@@ -108,9 +109,7 @@ export class SkillBuilder extends AgentBuilder<LiveBuild> {
   async build(input: SkillBuildInput): Promise<SkillPlan> {
     const { sessionId, architecture, feedback } = input;
     if (this.active.has(sessionId)) throw new Error("A build is already running for this session.");
-    if (!catalogueFor(architecture)) {
-      throw new Error("That target architecture isn't available yet. Choose Scout or Cowork.");
-    }
+    requireCatalogue(architecture, "skill");
     const analysis = loadPersistedAnalysis(sessionId);
     if (!analysis) throw new Error("There is no analysis for this recording yet.");
 
@@ -147,6 +146,7 @@ export class SkillBuilder extends AgentBuilder<LiveBuild> {
     // proposed plan for older callers that don't pass one.
     const plan = editedPlan ? SkillPlanSchema.parse(editedPlan) : held?.lastPlan ?? null;
     if (!plan) throw new Error("There is no plan to build from yet.");
+    requireTargetPlacement(plan.architecture, "skill", target.kind);
     // The pool may have evicted the live conversation while the user edited the plan;
     // recreate one so export always works.
     if (!held) held = await this.createLive(sessionId, plan.architecture);
@@ -227,7 +227,7 @@ export class SkillBuilder extends AgentBuilder<LiveBuild> {
       }),
     ];
 
-    const catalogue = catalogueFor(architecture) ?? "";
+    const catalogue = requireCatalogue(architecture, "skill").content;
     const systemContent = `${SKILL_BUILDER_INSTRUCTIONS}\n\n${catalogue}`.trim();
 
     const client = await this.ensureClient();

@@ -18,6 +18,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
@@ -48,6 +49,9 @@ const gccLicenseMirror =
 const mozillaLicenseRevision = "6efbc1d7604a22fae6ba145d1c3637f0bec7b1e6";
 const mozillaLicense =
   `https://raw.githubusercontent.com/mozilla/grcov/${mozillaLicenseRevision}`;
+const spdxLicenseRevision = "b8d6af45ad2fcfed61bb85a8ad068aa4a77eadf9";
+const spdxLicenseText =
+  `https://raw.githubusercontent.com/spdx/license-list-data/${spdxLicenseRevision}/text`;
 const licenseFilePattern =
   /^(?:(?:licen[cs]e|copying|notice|copyright)(?:[-._].*)?|third[-_. ]?party[-_. ]?notices?(?:[-._].*)?)$/i;
 const requiredComplianceFiles = [
@@ -87,6 +91,12 @@ export const legalTextSpecs = [
     fileName: "MPL-2.0.txt",
     url: `${mozillaLicense}/LICENSE-MPL-2.0`,
     marker: "Mozilla Public License Version 2.0",
+  },
+  {
+    id: "artistic-2.0",
+    fileName: "Artistic-2.0.txt",
+    url: `${spdxLicenseText}/Artistic-2.0.txt`,
+    marker: "The Artistic License 2.0",
   },
 ];
 
@@ -165,6 +175,115 @@ function gitArchiveSpec(name, gitRepository, commitWebBase, gitRevision) {
     gitRevision,
     archivePrefix: `${name}-${gitRevision}/`,
   };
+}
+const tesseractCoreSources = {
+  core: {
+    archiveName: "tesseract-js-core",
+    gitRepository: "https://github.com/naptha/tesseract.js-core.git",
+    webBase: "https://github.com/naptha/tesseract.js-core/tree",
+  },
+  giflib: {
+    archiveName: "tesseract-core-giflib",
+    gitRepository: "https://github.com/mirrorer/giflib.git",
+    rawBase: "https://raw.githubusercontent.com/mirrorer/giflib",
+    webBase: "https://github.com/mirrorer/giflib/tree",
+  },
+  leptonica: {
+    archiveName: "tesseract-core-leptonica",
+    gitRepository: "https://github.com/DanBloomberg/leptonica.git",
+    rawBase: "https://raw.githubusercontent.com/DanBloomberg/leptonica",
+    webBase: "https://github.com/DanBloomberg/leptonica/tree",
+  },
+  libjpeg: {
+    archiveName: "tesseract-core-libjpeg",
+    gitRepository: "https://github.com/LuaDist/libjpeg.git",
+    rawBase: "https://raw.githubusercontent.com/LuaDist/libjpeg",
+    webBase: "https://github.com/LuaDist/libjpeg/tree",
+  },
+  libpng: {
+    archiveName: "tesseract-core-libpng",
+    gitRepository: "https://github.com/glennrp/libpng.git",
+    rawBase: "https://raw.githubusercontent.com/glennrp/libpng",
+    webBase: "https://github.com/glennrp/libpng/tree",
+  },
+  libtiff: {
+    archiveName: "tesseract-core-libtiff",
+    gitRepository: "https://gitlab.com/libtiff/libtiff.git",
+    rawBase: "https://gitlab.com/libtiff/libtiff/-/raw",
+    webBase: "https://gitlab.com/libtiff/libtiff/-/tree",
+  },
+  libwebp: {
+    archiveName: "tesseract-core-libwebp",
+    gitRepository: "https://github.com/webmproject/libwebp.git",
+    rawBase: "https://raw.githubusercontent.com/webmproject/libwebp",
+    webBase: "https://github.com/webmproject/libwebp/tree",
+  },
+  openlibm: {
+    archiveName: "tesseract-core-openlibm",
+    gitRepository: "https://github.com/JuliaMath/openlibm.git",
+    rawBase: "https://raw.githubusercontent.com/JuliaMath/openlibm",
+    webBase: "https://github.com/JuliaMath/openlibm/tree",
+  },
+  tesseract: {
+    archiveName: "tesseract-core-tesseract",
+    gitRepository: "https://github.com/Balearica/tesseract.git",
+    rawBase: "https://raw.githubusercontent.com/Balearica/tesseract",
+    webBase: "https://github.com/Balearica/tesseract/tree",
+  },
+  zlib: {
+    archiveName: "tesseract-core-zlib",
+    gitRepository: "https://github.com/madler/zlib.git",
+    rawBase: "https://raw.githubusercontent.com/madler/zlib",
+    webBase: "https://github.com/madler/zlib/tree",
+  },
+};
+
+const tesseractCoreNoticeFiles = {
+  giflib: {
+    path: "COPYING",
+    outputFile: "giflib-COPYING.txt",
+    marker: "The GIFLIB distribution is Copyright",
+  },
+  leptonica: {
+    path: "leptonica-license.txt",
+    outputFile: "leptonica-LICENSE.txt",
+    marker: "Copyright (C) 2001-2020 Leptonica",
+  },
+  libjpeg: {
+    path: "README",
+    outputFile: "libjpeg-README.txt",
+    marker: "LEGAL ISSUES",
+  },
+  libpng: {
+    path: "LICENSE",
+    outputFile: "libpng-LICENSE.txt",
+    marker: "PNG Reference Library License version 2",
+  },
+  libtiff: {
+    path: "COPYRIGHT",
+    outputFile: "libtiff-COPYRIGHT.txt",
+    marker: "Copyright (c) 1988-1997 Sam Leffler",
+  },
+  libwebp: {
+    path: "COPYING",
+    outputFile: "libwebp-COPYING.txt",
+    marker: "Copyright (c) 2010, Google Inc.",
+  },
+  openlibm: {
+    path: "LICENSE.md",
+    outputFile: "openlibm-LICENSE.md",
+    marker: "OpenLibm contains code that is covered by various licenses.",
+  },
+  tesseract: {
+    path: "LICENSE",
+    outputFile: "tesseract-LICENSE.txt",
+    marker: "Apache License",
+  },
+  zlib: {
+    path: "README",
+    outputFile: "zlib-README.txt",
+    marker: "ZLIB DATA COMPRESSION LIBRARY",
+  },
 }
 
 const sourceBuilders = {
@@ -539,6 +658,177 @@ export function buildNativeSourceSpecs(
   return specs.sort((a, b) => a.id.localeCompare(b.id));
 }
 
+function assertExactKeys(value, expected, label) {
+  const actual = Object.keys(value ?? {}).sort();
+  const sortedExpected = [...expected].sort();
+  if (JSON.stringify(actual) !== JSON.stringify(sortedExpected)) {
+    throw new Error(
+      `${label} differ from the reviewed set; expected ${sortedExpected.join(", ")}, ` +
+        `found ${actual.join(", ") || "(none)"}.`,
+    );
+  }
+}
+
+function reviewedTesseractSourceRevisions(tesseract) {
+  const expected = Object.keys(tesseractCoreSources);
+  assertExactKeys(tesseract?.sourceRevisions, expected, "Tesseract source revisions");
+  for (const [name, revision] of Object.entries(tesseract.sourceRevisions)) {
+    if (!/^[a-f0-9]{40}$/.test(revision)) {
+      throw new Error(`Tesseract ${name} source revision must be a full Git commit.`);
+    }
+  }
+  return tesseract.sourceRevisions;
+}
+
+export function buildTesseractSourceSpecs(tesseract) {
+  if (!/^\d+\.\d+\.\d+$/.test(tesseract?.coreVersion ?? "")) {
+    throw new Error("Tesseract.js-core must have a reviewed exact version.");
+  }
+  const revisions = reviewedTesseractSourceRevisions(tesseract);
+  return Object.entries(tesseractCoreSources)
+    .map(([name, source]) => {
+      const revision = revisions[name];
+      const isCore = name === "core";
+      return {
+        id: isCore
+          ? `tesseract-js-core@${tesseract.coreVersion}`
+          : `tesseract-core-${name}@${revision}`,
+        version: isCore ? tesseract.coreVersion : revision,
+        fileName: `${source.archiveName}-${revision}.tar`,
+        url: `${source.webBase}/${revision}`,
+        gitRepository: source.gitRepository,
+        gitRevision: revision,
+        archivePrefix: `${source.archiveName}-${revision}/`,
+        reason: isCore
+          ? "Build scripts and source for the packaged Tesseract WebAssembly runtime."
+          : `Source and license material for ${name}, statically linked into Tesseract WebAssembly.`,
+      };
+    })
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function packageNameFromLockPath(lockPath) {
+  return lockPath.split("node_modules/").at(-1);
+}
+
+export function buildArtisticSourceSpecs(lock, reviewedPackages) {
+  const installed = new Map();
+  for (const [lockPath, entry] of Object.entries(lock.packages ?? {})) {
+    if (!lockPath || entry.dev || entry.license !== "Artistic-2.0") continue;
+    const name = packageNameFromLockPath(lockPath);
+    const versions = installed.get(name) ?? new Set();
+    versions.add(entry.version);
+    installed.set(name, versions);
+  }
+
+  assertExactKeys(
+    Object.fromEntries(installed),
+    Object.keys(reviewedPackages ?? {}),
+    "Artistic-2.0 packages",
+  );
+  return Object.entries(reviewedPackages ?? {})
+    .map(([name, version]) => {
+      const versions = installed.get(name);
+      if (versions?.size !== 1 || !versions.has(version)) {
+        throw new Error(
+          `${name} Artistic-2.0 versions have not been reviewed: ` +
+            `${[...(versions ?? [])].join(", ") || "(missing)"}; expected ${version}.`,
+        );
+      }
+      if (name.includes("/")) {
+        throw new Error(`Scoped Artistic-2.0 package ${name} needs an explicit source URL.`);
+      }
+      return {
+        id: `npm-source-${name}@${version}`,
+        version,
+        fileName: `${name}-${version}.tgz`,
+        url: `https://registry.npmjs.org/${name}/-/${name}-${version}.tgz`,
+        reason:
+          "Verbatim Standard Version source for an Artistic-2.0 package distributed with the app.",
+      };
+    })
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+
+export function buildComplianceSourceSpecs(nativeVersions, lock, policy, platform) {
+  return [
+    ...buildNativeSourceSpecs(nativeVersions, {
+      platform,
+      sharpVersion: policy.sharp,
+      sharpLibvipsVersion: policy.sharpLibvips.version,
+      electronVersion: policy.electron.version,
+      ffmpegRevision: policy.electron.ffmpegRevision,
+      sourceCommits: policy.sourceCommits,
+    }),
+    ...buildTesseractSourceSpecs(policy.tesseract),
+    ...buildArtisticSourceSpecs(lock, policy.artisticPackages),
+  ].sort((a, b) => a.id.localeCompare(b.id));
+}
+
+export function buildTesseractNoticeSpecs(tesseract) {
+  const revisions = reviewedTesseractSourceRevisions(tesseract);
+  const specs = Object.entries(tesseractCoreNoticeFiles).map(([name, notice]) => {
+    const source = tesseractCoreSources[name];
+    const revision = revisions[name];
+    return {
+      id: `tesseract-core-${name}-license`,
+      fileName: `tesseract-core-${notice.outputFile}`,
+      outputPath: `tesseract-core/${notice.outputFile}`,
+      url: `${source.rawBase}/${revision}/${notice.path}`,
+      marker: notice.marker,
+    };
+  });
+
+  const tessdataRevision = tesseract?.tessdata?.revision;
+  if (!/^[a-f0-9]{40}$/.test(tessdataRevision ?? "")) {
+    throw new Error("Tesseract tessdata revision must be a full Git commit.");
+  }
+  specs.push({
+    id: "tessdata-fast-license",
+    fileName: "tessdata-fast-LICENSE.txt",
+    outputPath: "tesseract-core/tessdata-fast-LICENSE.txt",
+    url:
+      `https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/` +
+      `${tessdataRevision}/LICENSE`,
+    marker: "Apache License",
+  });
+  return specs.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+export function buildStaticRemoteMaterialSpecs(policy) {
+  return [
+    ...legalTextSpecs.map((spec) => ({
+      ...spec,
+      outputPath: `licenses/${spec.fileName}`,
+    })),
+    ...buildTesseractNoticeSpecs(policy.tesseract),
+  ].sort((a, b) => a.id.localeCompare(b.id));
+}
+
+export function assertReviewedTessdataPins(source, tessdata) {
+  const revision = source.match(/export const TESSDATA_COMMIT = "([a-f0-9]{40})"/)?.[1];
+  if (revision !== tessdata?.revision) {
+    throw new Error(
+      `Runtime tessdata revision ${revision ?? "(missing)"} has not been reviewed; ` +
+        `expected ${tessdata?.revision ?? "(missing)"}.`,
+    );
+  }
+
+  const block = source.match(/export const TESSDATA_SHA256:[\s\S]*?=\s*\{([\s\S]*?)\};/)?.[1];
+  if (!block) throw new Error("Runtime tessdata SHA-256 map could not be read.");
+  const runtimeFiles = Object.fromEntries(
+    [...block.matchAll(/^\s*([A-Za-z0-9_-]+):\s*"([a-f0-9]{64})",?\s*$/gm)].map(
+      ([, name, sha256]) => [`${name}.traineddata`, sha256],
+    ),
+  );
+  assertExactKeys(runtimeFiles, Object.keys(tessdata.files ?? {}), "Tessdata files");
+  for (const [name, sha256] of Object.entries(tessdata.files ?? {})) {
+    if (runtimeFiles[name] !== sha256) {
+      throw new Error(`Runtime tessdata hash for ${name} does not match the reviewed policy.`);
+    }
+  }
+}
+
 export async function prepareCompliance({
   rootDir = repositoryRoot,
   outputDir = complianceOutput,
@@ -560,7 +850,7 @@ export async function prepareCompliance({
     );
   }
   const packages = collectProductionPackages(rootDir, lock);
-  validateReviewedVersions(packages, lock, policy);
+  validateReviewedVersions(packages, lock, policy, rootDir);
   await removeStalePartialFiles(path.join(rootDir, ".compliance-cache"));
 
   await rm(outputDir, { recursive: true, force: true });
@@ -625,6 +915,7 @@ export async function prepareCompliance({
         outputDir,
         rootDir,
         policy,
+        lock,
         nativeVersions: native.versions,
         fetchImpl,
       })
@@ -716,14 +1007,13 @@ export async function verifyComplianceDirectory(
   }
   if (requireSources) {
     const native = readJson(path.join(directory, "NATIVE-COMPONENTS.json"));
-    const expectedSources = buildNativeSourceSpecs(native.versions, {
-      platform: native.platform,
-      sharpVersion: policy.sharp,
-      sharpLibvipsVersion: policy.sharpLibvips.version,
-      electronVersion: policy.electron.version,
-      ffmpegRevision: policy.electron.ffmpegRevision,
-      sourceCommits: policy.sourceCommits,
-    });
+    const lock = readJson(path.join(repositoryRoot, "package-lock.json"));
+    const expectedSources = buildComplianceSourceSpecs(
+      native.versions,
+      lock,
+      policy,
+      native.platform,
+    );
     assertExactManifestIds(
       sources.sources,
       expectedSources.map(({ id }) => id),
@@ -842,10 +1132,24 @@ function collectProductionPackages(rootDir, lock) {
   );
 }
 
-function validateReviewedVersions(packages, lock, policy) {
+function validateReviewedVersions(packages, lock, policy, rootDir) {
   assertInstalledVersion(packages, "@github/copilot-sdk", policy.copilotSdk);
   assertReviewedCopilotCliVersions(lock, policy.copilotCli);
   assertInstalledVersion(packages, "sharp", policy.sharp);
+  for (const name of [
+    "@secretlint/core",
+    "@secretlint/secretlint-rule-pattern",
+    "@secretlint/secretlint-rule-preset-recommend",
+  ]) {
+    assertInstalledVersion(packages, name, policy.secretlint);
+  }
+  assertInstalledVersion(packages, "tesseract.js", policy.tesseract.jsVersion);
+  assertInstalledVersion(packages, "tesseract.js-core", policy.tesseract.coreVersion);
+  buildArtisticSourceSpecs(lock, policy.artisticPackages);
+  assertReviewedTessdataPins(
+    readFileSync(path.join(rootDir, "electron", "sensitive", "tessdata-source.ts"), "utf8"),
+    policy.tesseract.tessdata,
+  );
 
   const electronVersion = lock.packages?.["node_modules/electron"]?.version;
   if (electronVersion !== policy.electron.version) {
@@ -914,6 +1218,31 @@ function buildLicenseInventory(rootDir, packages, policy) {
     // permissive half, so they are resolved term by term before the file-based path.
     if (pkg.name.startsWith("@img/sharp-")) {
       return reviewedSharpLicenseEntry(pkg, policy, files);
+    }
+
+    if (pkg.license === "Artistic-2.0") {
+      if (files.length === 0) {
+        throw new Error(`${pkg.name}@${pkg.version} is missing its Artistic-2.0 notice.`);
+      }
+      return {
+        name: pkg.name,
+        version: pkg.version,
+        license: pkg.license,
+        packagePath: pkg.lockPath,
+        licenseSource: `${files.join(", ")}, licenses/Artistic-2.0.txt`,
+        text: [
+          ...files.map(
+            (file) =>
+              `----- ${file} -----\n${readFileSync(
+                path.join(pkg.directory, ...file.split("/")),
+                "utf8",
+              ).trim()}`,
+          ),
+          "The complete Artistic License 2.0 accompanies this application at " +
+            "licenses/Artistic-2.0.txt. Verbatim package source is listed in " +
+            "SOURCE-MANIFEST.json for redistributable builds.",
+        ].join("\n\n"),
+      };
     }
 
     if (files.length > 0) {
@@ -1333,10 +1662,7 @@ async function prepareRemoteMaterials({
   policy,
   fetchImpl,
 }) {
-  const specs = legalTextSpecs.map((spec) => ({
-    ...spec,
-    outputPath: `licenses/${spec.fileName}`,
-  }));
+  const specs = buildStaticRemoteMaterialSpecs(policy);
 
   const onnxVersions = [
     ...new Set(
@@ -1402,17 +1728,16 @@ async function prepareSources({
   outputDir,
   rootDir,
   policy,
+  lock,
   nativeVersions,
   fetchImpl,
 }) {
-  const specs = buildNativeSourceSpecs(nativeVersions, {
-    platform: process.platform,
-    sharpVersion: policy.sharp,
-    sharpLibvipsVersion: policy.sharpLibvips.version,
-    electronVersion: policy.electron.version,
-    ffmpegRevision: policy.electron.ffmpegRevision,
-    sourceCommits: policy.sourceCommits,
-  });
+  const specs = buildComplianceSourceSpecs(
+    nativeVersions,
+    lock,
+    policy,
+    process.platform,
+  );
   const sources = await mapLimit(specs, 4, async (spec) => {
     const relative = `sources/${spec.fileName}`;
     const target = path.join(outputDir, "sources", spec.fileName);
@@ -1541,55 +1866,63 @@ async function obtainGitArchive(spec, cache, rootDir) {
   if (cacheIsValid) return;
 
   await rm(cache, { force: true });
-  const repository = path.join(rootDir, ".compliance-cache", "git", spec.id);
+  const repository = path.join(
+    tmpdir(),
+    "skill-recorder-compliance-git",
+    `${createHash("sha256").update(spec.id).digest("hex").slice(0, 16)}-${process.pid}`,
+  );
   const temporary = `${cache}.partial`;
   await rm(repository, { recursive: true, force: true });
   await rm(temporary, { force: true });
   await mkdir(repository, { recursive: true });
 
-  await runGit(["init", "--quiet"], repository);
-  await runGit(
-    [
-      "fetch",
-      "--depth=1",
-      "--no-tags",
-      "--quiet",
-      spec.gitRepository,
-      spec.gitRevision,
-    ],
-    repository,
-  );
-  const resolvedRevision = await runGit(["rev-parse", "FETCH_HEAD"], repository);
-  if (resolvedRevision !== spec.gitRevision) {
-    throw new Error(
-      `Fetched ${spec.id} revision ${resolvedRevision}; expected ${spec.gitRevision}.`,
+  try {
+    await runGit(["init", "--quiet"], repository);
+    await runGit(
+      [
+        "fetch",
+        "--depth=1",
+        "--no-tags",
+        "--quiet",
+        spec.gitRepository,
+        spec.gitRevision,
+      ],
+      repository,
     );
-  }
+    const resolvedRevision = await runGit(["rev-parse", "FETCH_HEAD"], repository);
+    if (resolvedRevision !== spec.gitRevision) {
+      throw new Error(
+        `Fetched ${spec.id} revision ${resolvedRevision}; expected ${spec.gitRevision}.`,
+      );
+    }
 
-  await runGit(
-    [
-      ...deterministicGitConfigArgs,
-      "archive",
-      "--format=tar",
-      `--prefix=${spec.archivePrefix}`,
-      `--output=${temporary}`,
-      "FETCH_HEAD",
-    ],
-    repository,
-  );
-  if (!(await hasExpectedFileHeader(spec.fileName, temporary))) {
-    await rm(temporary, { force: true });
-    throw new Error(`Generated source material ${spec.id} is not a valid tar archive.`);
-  }
-  const actualHash = await sha256File(temporary);
-  if (actualHash !== spec.expectedSha256) {
-    await rm(temporary, { force: true });
-    throw new Error(
-      `Generated source material ${spec.id} has SHA-256 ${actualHash}; ` +
-        `expected reviewed hash ${spec.expectedSha256}.`,
+    await runGit(
+      [
+        ...deterministicGitConfigArgs,
+        "archive",
+        "--format=tar",
+        `--prefix=${spec.archivePrefix}`,
+        `--output=${temporary}`,
+        "FETCH_HEAD",
+      ],
+      repository,
     );
+    if (!(await hasExpectedFileHeader(spec.fileName, temporary))) {
+      await rm(temporary, { force: true });
+      throw new Error(`Generated source material ${spec.id} is not a valid tar archive.`);
+    }
+    const actualHash = await sha256File(temporary);
+    if (actualHash !== spec.expectedSha256) {
+      await rm(temporary, { force: true });
+      throw new Error(
+        `Generated source material ${spec.id} has SHA-256 ${actualHash}; ` +
+          `expected reviewed hash ${spec.expectedSha256}.`,
+      );
+    }
+    await rename(temporary, cache);
+  } finally {
+    await rm(repository, { recursive: true, force: true });
   }
-  await rename(temporary, cache);
 }
 
 async function runGit(args, cwd) {
@@ -1769,10 +2102,11 @@ function renderComplianceReadme(includeSources) {
     "- `THIRD-PARTY-LICENSES.txt` contains per-package license and attribution text.",
     "- `NATIVE-THIRD-PARTY-NOTICES.md` identifies libraries embedded in native payloads.",
     "- `onnxruntime/` contains exact ONNX Runtime third-party notices.",
+    "- `tesseract-core/` contains notices for libraries embedded in the OCR WebAssembly.",
     includeSources
       ? "- `electron/` contains the exact Electron and Chromium notices from this build."
       : "- Electron notices are added when a redistributable build is prepared.",
-    "- `licenses/` contains the complete GPL, LGPL, and MPL license texts.",
+    "- `licenses/` contains complete GPL, LGPL, MPL, and Artistic-2.0 license texts.",
     "- `RELINKING.md` explains replacement and relinking of native libraries.",
     "- `SOURCE-MANIFEST.json` maps corresponding-source archives to their origins.",
     "",

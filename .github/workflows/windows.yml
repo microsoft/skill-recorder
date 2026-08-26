@@ -3,7 +3,7 @@ name: Windows
 on:
   push:
     branches:
-      - master
+      - main
   pull_request:
 
 permissions:
@@ -35,7 +35,7 @@ jobs:
           & .\scripts\install-windows.test.ps1 -InstallerPath $path
           $beforeErrorPreference = $ErrorActionPreference
           $beforeProgressPreference = $ProgressPreference
-          $env:SKILL_RECORDER_COMMIT = "master"
+          $env:SKILL_RECORDER_COMMIT = "main"
           try {
             & .\install.ps1
             throw "install.ps1 accepted a mutable source reference"
@@ -63,9 +63,12 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 24.19.0
           architecture: ${{ matrix.arch }}
           cache: npm
+
+      - name: Validate lockfile portability
+        run: npm run check:lockfile
 
       - name: Cache compliance source downloads
         uses: actions/cache@v4
@@ -80,7 +83,7 @@ jobs:
           if ((node -p "process.arch") -ne "${{ matrix.arch }}") {
             throw "Expected Node ${{ matrix.arch }}"
           }
-          npm ci
+          npm ci --ignore-scripts=false --dangerously-allow-all-scripts=false --strict-allow-scripts
           node -e "require('sharp'); require('onnxruntime-node'); require('koffi')"
           if (Select-String -Path package-lock.json -Pattern 'ffmpeg-static' -Quiet) {
             throw "ffmpeg-static remains in the lockfile"

@@ -7,7 +7,7 @@ name: Portable builds
 # Runs ONLY when started by hand (workflow_dispatch) -- never on push or pull
 # request -- so ordinary merges don't spend ~10-15 min packaging. The always-on
 # Windows / Non-Windows workflows keep typechecking, testing, and (on Windows)
-# packaging on pull requests and master pushes.
+# packaging on pull requests and main pushes.
 #
 # Unsigned by design: macOS arm64 carries only the automatic *ad-hoc* signature
 # (mac.identity "-" in package.json) so it launches after a one-time Gatekeeper
@@ -50,10 +50,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 24.19.0
           cache: npm
 
-      - run: npm ci
+      - name: Validate lockfile portability
+        run: npm run check:lockfile
+
+      - run: npm ci --ignore-scripts=false --dangerously-allow-all-scripts=false --strict-allow-scripts
 
       - name: Package portable app
         run: npm run ${{ matrix.build_script }}

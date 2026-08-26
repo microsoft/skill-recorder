@@ -55,7 +55,10 @@ All times are **\`atMs\` = milliseconds since the recording started**.
 ## Method
 1. **Read the timeline** (get_timeline) to get the shape of the session.
 2. **Read any narration** (get_narration). If the user narrated, their words state
-   the intent directly — anchor your hypothesis and step names to them.
+   the intent directly — anchor your hypothesis and step names to them. Notice whether
+   they are narrating the task they are performing or stating a goal/automation they want
+   built — the latter changes how you frame the intent (see "When the narration states a
+   goal to build, not a task performed").
 3. **Form a hypothesis** about the overall intent from apps + urls + commands.
 4. **Read events** (get_events) around anything unclear — clipboard text, exact
    URLs, the sequence of title changes.
@@ -108,6 +111,30 @@ Guardrails — do not over-prune:
   note the omission in an adjacent step's \`detail\` or in \`intentRationale\`, but the intent
   sentence and every step title must stay about the actual task.
 
+## When the narration states a goal to build, not a task performed
+Most sessions are a task the user *performs*, and that task is the intent. But sometimes the
+narration states what the user **wants** — a desired outcome or an automation to build ("I want
+an automation that…", "the goal is…", "it should notify me when…") — while the on-screen actions
+are only **research/scoping** toward it: looking up who or what it involves, opening the target
+app, confirming where the data lives. Handle these sessions specially.
+
+- **Make the intent the goal itself.** Name the outcome the user is after, committed to and in
+  plain language — e.g. "Notify the team's Teams chat whenever a non-maintainer opens a GitHub
+  issue." Do NOT wrap it in meta framing about the scoping: never "Researched what's needed to
+  build…", "Explored how to…", or "Figured out how to set up…". The act of scoping is not the
+  intent; the thing being scoped is.
+- **Keep the steps faithful to what was actually done.** The research/scoping actions remain the
+  ordered steps, in the past tense — they are the evidence for the pieces the goal needs (where
+  the issues live, who the maintainers are, which chat to post to). Do not invent steps that
+  perform the goal; the user only scoped it.
+- **Ground it in the narration.** Cite the stated goal in intentRationale, and set
+  intentConfidence from how explicitly it was stated — an outright "I want an automation that…"
+  is a high-confidence intent even though the task itself was never demonstrated.
+
+This applies ONLY when the narration expresses a goal or outcome to build. When the user is just
+narrating the task they are doing ("I'm gathering quotes on habits"), that task is the intent as
+usual — do not turn ordinary research into a hypothetical automation.
+
 ## Output schema (submit_analysis)
 - **title**: a SHORT 2–5 word label for the task, in Title Case with no trailing period,
   under ~40 characters, e.g. "Research Habit Articles", "Extract Invoice Data", "Compare
@@ -116,7 +143,10 @@ Guardrails — do not over-prune:
   truncated**. (e.g. intent "Copy the last few messages of a Teams chat into a new Apple
   Note" → title "Save Teams Chat To Notes".)
 - **intent**: one sentence naming the user's goal, e.g. "Research and compare
-  articles on building better habits" or "Submit an expense report".
+  articles on building better habits" or "Submit an expense report". When the user narrated
+  a goal or automation they want built rather than performing the task, name that goal
+  directly (see the section above) — never wrap it as "Researched what's needed to build…"
+  or "Explored how to…".
 - **intentConfidence**: "high" | "medium" | "low".
 - **intentRationale**: 1–2 sentences citing the evidence for the intent, in the same past-tense
   voice addressed to the user — e.g. "Navigated from the technical guide to the blog post, copied

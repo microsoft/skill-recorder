@@ -1,6 +1,9 @@
 import { z } from "zod";
 
+import { SkillArchitecture } from "./architecture-registry";
 import { migrateLegacyInputsToValues, renderValues, ValueSchema } from "./values";
+
+export * from "./architecture-registry";
 
 /**
  * The Skill Builder's contract. From an *approved* {@link Analysis} the multi-turn
@@ -12,84 +15,6 @@ import { migrateLegacyInputsToValues, renderValues, ValueSchema } from "./values
  * target agent (Scout first). Kept separate from `analysis.ts` (the builder's
  * *input*); this is the builder's *output*.
  */
-
-/** Agent architectures a skill can target. Scout and Cowork are enabled today. */
-export const SkillArchitecture = z.enum(["scout", "cowork", "copilot-studio"]);
-export type SkillArchitecture = z.infer<typeof SkillArchitecture>;
-
-/** UI metadata for the architecture selector (shared so main + renderer agree). */
-export interface ArchitectureOption {
-  id: SkillArchitecture;
-  label: string;
-  /** Enabled targets can be built today; the rest are shown greyed out. */
-  enabled: boolean;
-  /** One-line reason / "coming soon" note shown under the option. */
-  note: string;
-}
-
-export const ARCHITECTURES: readonly ArchitectureOption[] = [
-  { id: "scout", label: "Scout", enabled: true, note: "Microsoft Scout: native WorkIQ, browser, files, and built-in skills." },
-  { id: "cowork", label: "Cowork", enabled: true, note: "Microsoft 365 Copilot (Cowork): native Teams, Outlook, Calendar, SharePoint, files, and built-in skills." },
-  { id: "copilot-studio", label: "Copilot Studio", enabled: false, note: "Coming soon." },
-] as const;
-
-/**
- * The kind of artifact the builder produces from an approved analysis. A **skill**
- * is an on-demand, description-triggered `SKILL.md`; an **automation** is a
- * scheduled/condition-triggered, multi-step procedure. The two are built by
- * separate final-stage agents because their plans have different shapes.
- */
-export const BuildKind = z.enum(["skill", "automation"]);
-export type BuildKind = z.infer<typeof BuildKind>;
-
-/** One selectable option in the "What do you want to build?" target picker. */
-export interface BuildTarget {
-  kind: BuildKind;
-  architecture: SkillArchitecture;
-  /** Card label, e.g. "Scout automation". */
-  label: string;
-  /** Enabled targets can be built today; the rest are shown greyed out. */
-  enabled: boolean;
-  /** One-line note shown under the option. */
-  note: string;
-}
-
-/**
- * The build targets shown up front, in order. Scout has both a skill and an automation
- * target; Cowork has a skill target (export/download only). Automations are deeply
- * platform-specific, so the target — not just the architecture — is chosen before the
- * builder plans. copilot-studio is shown as a single greyed "coming soon" card.
- */
-export const TARGETS: readonly BuildTarget[] = [
-  {
-    kind: "skill",
-    architecture: "scout",
-    label: "Scout skill",
-    enabled: true,
-    note: "An on-demand skill Scout runs when its description matches the task.",
-  },
-  {
-    kind: "automation",
-    architecture: "scout",
-    label: "Scout automation",
-    enabled: true,
-    note: "A scheduled, multi-step automation Scout runs on a trigger.",
-  },
-  {
-    kind: "skill",
-    architecture: "cowork",
-    label: "Cowork skill",
-    enabled: true,
-    note: "An on-demand skill for Microsoft 365 Copilot (Cowork) you export and install.",
-  },
-  {
-    kind: "skill",
-    architecture: "copilot-studio",
-    label: "Copilot Studio",
-    enabled: false,
-    note: "Coming soon.",
-  },
-] as const;
 
 /**
  * A generalized step is either a **calculation** (reads, derives, decides, or formats

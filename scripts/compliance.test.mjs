@@ -7,10 +7,27 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  assertPortableLockfileRegistries,
+  assertPolicyCapableNpm,
+  assertReviewedInstallScripts,
+  normalizeLockfileRegistryUrls,
+} from "./check-lockfile-portability.mjs";
+import {
+  assertReviewedPackagePath,
+  exitCodeForSignal,
+  sanitizeElectronEnvironment,
+} from "./run-reviewed-electron.mjs";
+import {
   assertLockfileClosure,
   assertReviewedCopilotCliVersions,
+  assertReviewedTessdataPins,
   assertWasmExcludedFromPackaging,
+  buildArtisticSourceSpecs,
+  buildComplianceSourceSpecs,
   buildNativeSourceSpecs,
+  buildStaticRemoteMaterialSpecs,
+  buildTesseractNoticeSpecs,
+  buildTesseractSourceSpecs,
   deterministicGitConfigArgs,
   detectLinuxLibc,
   excludedWasmPackages,
@@ -81,10 +98,15 @@ const specOptions = {
 };
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const repoManifest = JSON.parse(
+  await readFile(path.join(repoRoot, "package.json"), "utf8"),
+);
+const repoLock = JSON.parse(
+  await readFile(path.join(repoRoot, "package-lock.json"), "utf8"),
+);
 const repoPolicy = JSON.parse(
   await readFile(path.join(repoRoot, "third_party", "compliance-policy.json"), "utf8"),
 );
-const repoManifest = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8"));
 
 test("license filenames include common suffixed forms", () => {
   assert.equal(isLicenseFileName("LICENSE"), true);
@@ -123,6 +145,91 @@ test("nested package legal files are discovered", async () => {
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("Tesseract WebAssembly source and notices are pinned to the reviewed build", () => {
+  const sources = buildTesseractSourceSpecs(repoPolicy.tesseract);
+  assert.equal(sources.length, 10);
+  assert.deepEqual(
+    new Set(sources.map(({ id }) => id)),
+    new Set([
+      "tesseract-js-core@7.0.0",
+      ...Object.entries(repoPolicy.tesseract.sourceRevisions)
+        .filter(([name]) => name !== "core")
+        .map(([name, revision]) => `tesseract-core-${name}@${revision}`),
+    ]),
+  );
+  for (const source of sources) {
+    assert.match(source.gitRevision, /^[a-f0-9]{40}$/);
+    assert.match(source.url, new RegExp(`${source.gitRevision}$`));
+    assert.match(source.fileName, /\.tar$/);
+  }
+
+  const notices = buildTesseractNoticeSpecs(repoPolicy.tesseract);
+  assert.equal(notices.length, 10);
+  assert(notices.some(({ id }) => id === "tessdata-fast-license"));
+  for (const notice of notices) {
+    assert.doesNotMatch(notice.url, /\/(?:master|main|HEAD)(?:\/|$)/);
+    assert.match(notice.outputPath, /^tesseract-core\//);
+    assert.match(repoPolicy.remoteMaterials[notice.id], /^[a-f0-9]{64}$/);
+  }
+});
+
+test("runtime tessdata pins match the reviewed model policy", async () => {
+  const source = await readFile(
+    path.join(repoRoot, "electron", "sensitive", "tessdata-source.ts"),
+    "utf8",
+  );
+  assert.doesNotThrow(() =>
+    assertReviewedTessdataPins(source, repoPolicy.tesseract.tessdata),
+  );
+  assert.throws(
+    () =>
+      assertReviewedTessdataPins(
+        source.replace(repoPolicy.tesseract.tessdata.revision, "f".repeat(40)),
+        repoPolicy.tesseract.tessdata,
+      ),
+    /has not been reviewed/,
+  );
+});
+
+test("Artistic-2.0 packages retain exact Standard Version source", () => {
+  const sources = buildArtisticSourceSpecs(repoLock, repoPolicy.artisticPackages);
+  assert.equal(sources.length, 5);
+  for (const source of sources) {
+    assert.match(source.url, /^https:\/\/registry\.npmjs\.org\/[^/]+\/-\/[^/]+\.tgz$/);
+    assert.match(source.reason, /Standard Version source/);
+  }
+
+  const changed = structuredClone(repoLock);
+  changed.packages["node_modules/editions"].version = "99.0.0";
+  assert.throws(
+    () => buildArtisticSourceSpecs(changed, repoPolicy.artisticPackages),
+    /have not been reviewed/,
+  );
+});
+
+test("every reviewed source hash is referenced by the release manifest", () => {
+  const darwinVersions = {
+    ...nativeVersions,
+    archive: "3.8.8",
+    expat: "2.8.2",
+    ffi: "3.6.0",
+    glib: "2.89.1",
+    heif: "1.23.1",
+    pango: "1.58.0",
+    rsvg: "2.62.90",
+    tiff: "d01a94b",
+    uhdr: "1acdbed",
+  };
+  const expected = [
+    ...buildComplianceSourceSpecs(nativeVersions, repoLock, repoPolicy, "win32"),
+    ...buildComplianceSourceSpecs(darwinVersions, repoLock, repoPolicy, "darwin"),
+  ].map(({ id }) => id);
+  assert.deepEqual(
+    new Set(Object.keys(repoPolicy.sourceMaterials)),
+    new Set(expected),
+  );
 });
 
 test("native source manifest covers dependencies, build scripts, and patches", () => {
@@ -270,33 +377,6 @@ test("every source specification uses an immutable revision or release", () => {
       if (spec.gitRevision) assert.match(spec.gitRevision, /^[0-9a-f]{40}$/);
     }
   }
-});
-
-test("every reviewed source material is still referenced by a payload", () => {
-  const referenced = new Set([
-    ...buildNativeSourceSpecs(nativeVersions, {
-      ...specOptions,
-      sharpVersion: repoPolicy.sharp,
-      sharpLibvipsVersion: repoPolicy.sharpLibvips.version,
-      electronVersion: repoPolicy.electron.version,
-      ffmpegRevision: repoPolicy.electron.ffmpegRevision,
-      sourceCommits: repoPolicy.sourceCommits,
-    }).map(({ id }) => id),
-    ...buildNativeSourceSpecs(
-      { ...nativeVersions, archive: "3.8.8", expat: "2.8.2", ffi: "3.6.0", glib: "2.89.1", heif: "1.23.1", pango: "1.58.0", rsvg: "2.62.90", tiff: "d01a94b", uhdr: "1acdbed" },
-      {
-        ...specOptions,
-        platform: "darwin",
-        sharpVersion: repoPolicy.sharp,
-        sharpLibvipsVersion: repoPolicy.sharpLibvips.version,
-        electronVersion: repoPolicy.electron.version,
-        ffmpegRevision: repoPolicy.electron.ffmpegRevision,
-        sourceCommits: repoPolicy.sourceCommits,
-      },
-    ).map(({ id }) => id),
-  ]);
-  const orphaned = Object.keys(repoPolicy.sourceMaterials).filter((id) => !referenced.has(id));
-  assert.deepEqual(orphaned, [], "compliance-policy.json retains unused source hashes");
 });
 
 test("git archives ignore host line-ending and global attribute settings", () => {
@@ -576,6 +656,96 @@ test("only supported release targets are packaged", () => {
   assert.equal(repoManifest.build.win.target, "nsis");
 });
 
+test("the lockfile is registry-portable and install scripts are reviewed", async () => {
+  assert.doesNotThrow(() => assertPortableLockfileRegistries(repoLock));
+  assert.doesNotThrow(() => assertReviewedInstallScripts(repoLock, repoManifest));
+
+  const internal = {
+    packages: {
+      "node_modules/example": {
+        version: "1.0.0",
+        resolved:
+          "https://ms-feed-25.pkgs.visualstudio.com/feed/_packaging/npm/npm/registry/example/-/example-1.0.0.tgz",
+      },
+    },
+  };
+  assert.throws(
+    () => assertPortableLockfileRegistries(internal),
+    /non-portable resolved URLs/,
+  );
+  assert.equal(normalizeLockfileRegistryUrls(internal), 1);
+  assert.equal(
+    internal.packages["node_modules/example"].resolved,
+    "https://registry.npmjs.org/example/-/example-1.0.0.tgz",
+  );
+  assert.doesNotThrow(() => assertPortableLockfileRegistries(internal));
+
+  const scriptLock = {
+    packages: {
+      "node_modules/native-alias": {
+        version: "2.0.0",
+        resolved: "https://registry.npmjs.org/native/-/native-2.0.0.tgz",
+        hasInstallScript: true,
+      },
+      "node_modules/noisy": {
+        version: "3.0.0",
+        resolved: "https://registry.npmjs.org/noisy/-/noisy-3.0.0.tgz",
+        hasInstallScript: true,
+      },
+    },
+  };
+  assert.doesNotThrow(() =>
+    assertReviewedInstallScripts(scriptLock, {
+      allowScripts: { "native@2.0.0": true, noisy: false },
+    }),
+  );
+  assert.throws(
+    () =>
+      assertReviewedInstallScripts(scriptLock, {
+        allowScripts: { "native-alias": false },
+      }),
+    /does not match an install-script package/,
+  );
+  assert.throws(
+    () =>
+      assertReviewedInstallScripts(scriptLock, {
+        allowScripts: { native: true },
+      }),
+    /must pin an installed package version/,
+  );
+  assert.throws(
+    () => assertReviewedInstallScripts(scriptLock, { allowScripts: {} }),
+    /has no reviewed decision/,
+  );
+  assert.doesNotThrow(() => assertPolicyCapableNpm("11.17.0"));
+  assert.doesNotThrow(() => assertPolicyCapableNpm("12.0.0"));
+  assert.throws(
+    () => assertPolicyCapableNpm("11.16.0"),
+    /npm 11\.17\.0 or newer/,
+  );
+
+  assert.deepEqual(
+    sanitizeElectronEnvironment({
+      ELECTRON_OVERRIDE_DIST_PATH: "unreviewed",
+      npm_config_electron_customdir: "wrong-release",
+      npm_config_electron_mirror: "https://example.invalid",
+      npm_package_config_electron_customFilename: "wrong.zip",
+      npm_package_config_electron_use_remote_checksums: "1",
+      PATH: "retained",
+    }),
+    { PATH: "retained" },
+  );
+  assert.doesNotThrow(() =>
+    assertReviewedPackagePath("electron.exe", "electron.exe"),
+  );
+  assert.throws(
+    () => assertReviewedPackagePath("electron.exe", "unreviewed.exe"),
+    /does not match the reviewed runtime/,
+  );
+  assert.equal(exitCodeForSignal("SIGINT"), 130);
+  assert.equal(exitCodeForSignal("SIGTERM"), 143);
+});
+
 test("unreviewed source hashes fail closed", () => {
   assert.equal(
     reviewedMaterialHash("source", { source: "a".repeat(64) }, "Source material"),
@@ -711,6 +881,7 @@ test("source and release instructions remain compliance-preserving", async () =>
     readme,
     releasing,
     windowsWorkflow,
+    electronInstaller,
   ] = await Promise.all([
     readFile(path.join(repoRoot, "install.ps1"), "utf8"),
     readFile(path.join(repoRoot, "install.sh"), "utf8"),
@@ -721,6 +892,10 @@ test("source and release instructions remain compliance-preserving", async () =>
       path.join(repoRoot, ".github", "workflows", "windows.yml"),
       "utf8",
     ),
+    readFile(
+      path.join(repoRoot, "scripts", "install-reviewed-electron.mjs"),
+      "utf8",
+    ),
   ]);
 
   assert.match(windowsInstaller, /\^\[0-9a-fA-F\]\{40\}\$/);
@@ -729,10 +904,13 @@ test("source and release instructions remain compliance-preserving", async () =>
     /https:\/\/codeload\.github\.com\/microsoft\/skill-recorder\/zip\/\$Commit/,
   );
   assert.match(windowsInstaller, /https:\/\/nodejs\.org\/dist\/index\.json/);
-  assert.match(windowsInstaller, /NPM_CONFIG_REGISTRY = "https:\/\/registry\.npmjs\.org\/"/);
+  assert.doesNotMatch(
+    windowsInstaller,
+    /NPM_CONFIG_(?:REGISTRY|REPLACE_REGISTRY_HOST)/,
+  );
   assert.match(
     windowsInstaller,
-    /ELECTRON_MIRROR = "https:\/\/github\.com\/electron\/electron\/releases\/download\/"/,
+    /https:\/\/github\.com\/electron\/electron\/releases\/download\//,
   );
   assert.match(windowsInstaller, /SHASUMS256\.txt/);
   assert.match(windowsInstaller, /Get-AuthenticodeSignature/);
@@ -761,8 +939,21 @@ test("source and release instructions remain compliance-preserving", async () =>
     windowsInstaller,
     /\(& \$nodeExe [^\r\n]+\| Select-Object -First 1\)/,
   );
-  assert.match(windowsInstaller, /@?\("ci", "--no-audit", "--no-fund"\)/);
-  assert.match(windowsInstaller, /@?\("node_modules\\electron\\install\.js"\)/);
+  assert.match(
+    windowsInstaller,
+    /"ci",\s+"--no-audit",\s+"--no-fund",\s+"--ignore-scripts=false",\s+"--dangerously-allow-all-scripts=false",\s+"--strict-allow-scripts"/,
+  );
+  assert.match(windowsInstaller, /"scripts\\check-lockfile-portability\.mjs"/);
+  assert.match(windowsInstaller, /"scripts\\install-reviewed-electron\.mjs"/);
+  assert.doesNotMatch(windowsInstaller, /node_modules\\electron\\install\.js/);
+  assert.match(
+    windowsInstaller,
+    /Move-DirectoryTree -Source \$buildDirectory -Destination \$sourceDirectory/,
+  );
+  assert.match(
+    windowsInstaller,
+    /Move-DirectoryTree -Source \$expandedDirectory -Destination \$runtimeDirectory/,
+  );
   assert.match(windowsInstaller, /@?\("run", "compliance:licenses"\)/);
   assert.match(windowsInstaller, /@?\("run", "build"\)/);
   assert.doesNotMatch(
@@ -788,14 +979,28 @@ test("source and release instructions remain compliance-preserving", async () =>
     /https:\/\/codeload\.github\.com\/microsoft\/skill-recorder\/tar\.gz\/\$COMMIT/,
   );
   assert.match(unixInstaller, /https:\/\/nodejs\.org\/dist\/latest-v24\.x/);
-  assert.match(unixInstaller, /NPM_CONFIG_REGISTRY="https:\/\/registry\.npmjs\.org\/"/);
+  assert.doesNotMatch(
+    unixInstaller,
+    /NPM_CONFIG_(?:REGISTRY|REPLACE_REGISTRY_HOST)/,
+  );
   assert.match(
     unixInstaller,
-    /ELECTRON_MIRROR="https:\/\/github\.com\/electron\/electron\/releases\/download\/"/,
+    /https:\/\/github\.com\/electron\/electron\/releases\/download\//,
   );
   assert.match(unixInstaller, /SHASUMS256\.txt/);
-  assert.match(unixInstaller, /"\$NPM" ci --no-audit --no-fund/);
-  assert.match(unixInstaller, /"\$NODE" "node_modules\/electron\/install\.js"/);
+  assert.match(
+    unixInstaller,
+    /"\$NPM" ci \\\s+--no-audit \\\s+--no-fund \\\s+--ignore-scripts=false \\\s+--dangerously-allow-all-scripts=false \\\s+--strict-allow-scripts/,
+  );
+  assert.match(
+    unixInstaller,
+    /"\$NODE" "scripts\/check-lockfile-portability\.mjs"/,
+  );
+  assert.match(
+    unixInstaller,
+    /"\$NODE" "scripts\/install-reviewed-electron\.mjs"/,
+  );
+  assert.doesNotMatch(unixInstaller, /node_modules\/electron\/install\.js/);
   assert.match(unixInstaller, /"\$NPM" run compliance:licenses/);
   assert.match(unixInstaller, /"\$NPM" run build/);
   assert.match(unixInstaller, /\.compliance\/licenses\/LGPL-3\.0\.txt/);
@@ -809,10 +1014,28 @@ test("source and release instructions remain compliance-preserving", async () =>
   assert.match(instructions, /generated build is for local execution only/i);
   assert.match(instructions, /npm ci/);
   assert.match(instructions, /full 40-character commit SHA/i);
+  assert.match(instructions, /npm 11\.17/i);
   assert.match(instructions, /macOS/);
   assert.match(instructions, /Ubuntu/);
   assert.match(instructions, /complete generated\s+compliance bundle/i);
   assert.doesNotMatch(instructions, /raw\.githubusercontent\.com\/[^ \n]+\/(?:master|main)\//i);
+  assert.match(electronInstaller, /createHash\("sha256"\)/);
+  assert.match(electronInstaller, /@electron-internal\/extract-zip/);
+  assert.match(electronInstaller, /@electron\/get/);
+  assert.match(electronInstaller, /checksums,/);
+  assert.match(electronInstaller, /initializeProxy\(\)/);
+  assert.match(
+    electronInstaller,
+    /https:\/\/github\.com\/electron\/electron\/releases\/download\//,
+  );
+  assert.equal(
+    repoManifest.scripts.dev,
+    "node scripts/run-reviewed-electron.mjs dev",
+  );
+  assert.equal(
+    repoManifest.scripts.start,
+    "node scripts/run-reviewed-electron.mjs start",
+  );
   assert.match(instructions, /SKILL_RECORDER_NO_DESKTOP_SHORTCUT=1/);
   assert.match(instructions, /GetFolderPath\('DesktopDirectory'\)/);
   assert.match(readme, /\[`INSTALL\.md`\]\(INSTALL\.md\)/);
@@ -825,6 +1048,8 @@ test("source and release instructions remain compliance-preserving", async () =>
   assert.match(releasing, /not working-tree\s+files/i);
   assert.match(releasing, /SHA-256 values for `install\.ps1` and `install\.sh`/i);
   assert.match(releasing, /complete, version-matched\s+compliance bundle/i);
+  assert.match(releasing, /Tesseract\.js-core/);
+  assert.match(instructions, /Tesseract WebAssembly component notices/);
   assert.match(releasing, /Never silently replace an asset or move a release tag/i);
   assert.match(
     windowsWorkflow,

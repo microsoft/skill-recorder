@@ -70,6 +70,7 @@ export default defineConfig({
                 "sharp",
                 "@huggingface/transformers",
                 "onnxruntime-node",
+                "tesseract.js",
               ],
             },
           },

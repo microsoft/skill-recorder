@@ -10,6 +10,7 @@ import {
 
 import { FULL_CAPTURE } from "../common/config";
 import { IPC, type RecorderStatus, type StartResult } from "../common/ipc";
+import type { UiLocale } from "../common/locale";
 import type {
   SupportedShellId,
   TerminalActionResult,
@@ -25,6 +26,7 @@ import { NarrationManager } from "./narration/manager";
 import { SensitiveModelManager } from "./sensitive/model-manager";
 import { RecorderController } from "./recorder/controller";
 import { RecordingPrivacySession } from "./recording-privacy";
+import { UiLocaleStore } from "./ui-locale";
 import { deleteSession } from "./sessions";
 import { SkillBuilder } from "./skillbuilder/builder";
 import { AutomationBuilder } from "./automationbuilder/builder";
@@ -398,6 +400,18 @@ app.whenReady().then(async () => {
   ipcMain.handle(IPC.startConfirmed, () => startRecording());
   ipcMain.handle(IPC.recordingPrivacyReviewed, () => recordingPrivacy.markReviewed());
   log.info("Capture: recording all sources");
+
+  // Resolved once the app is ready, so `getPath`/`getLocale` are usable. Every
+  // window renders its own React root, so a change has to be broadcast rather
+  // than shared through renderer state.
+  const uiLocale = new UiLocaleStore({
+    dir: app.getPath("userData"),
+    systemLocale: app.getLocale(),
+    onChange: (locale) => broadcast(IPC.uiLocaleChanged, locale),
+    onPersistError: (error) => log.warn("Could not save the interface language:", error),
+  });
+  ipcMain.handle(IPC.uiLocale, () => uiLocale.current());
+  ipcMain.handle(IPC.setUiLocale, (_event, locale: UiLocale) => uiLocale.set(locale));
 
   ipcMain.handle(IPC.openLibrary, () => openLibrary());
   ipcMain.handle(IPC.closeLibrary, () => {

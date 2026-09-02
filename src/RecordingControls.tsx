@@ -10,8 +10,10 @@ import {
   narrationLanguageLabel,
 } from "../common/narration";
 import { formatMs } from "./format";
+import { useT } from "./i18n";
 
 export function RecordingControls() {
+  const t = useT();
   const [status, setStatus] = useState<RecorderStatus | null>(null);
   const [microphoneSettings, setMicrophoneSettings] =
     useState<MicrophoneSettingsStatus | null>(null);
@@ -140,9 +142,9 @@ export function RecordingControls() {
     setActionError(null);
     const enable = status.microphone.state !== "on";
     const result = await window.skillRecorder.setMicrophoneEnabled(enable);
-    if (!result.ok) setActionError(result.error ?? "Could not change the microphone.");
+    if (!result.ok) setActionError(result.error ?? t("controls.error.microphoneChange"));
     setMicrophonePending(false);
-  }, [status]);
+  }, [status, t]);
 
   const selectMicrophone = useCallback(async (deviceId: string) => {
     setDevicePending(true);
@@ -150,12 +152,12 @@ export function RecordingControls() {
     const result = await window.skillRecorder.selectMicrophone(deviceId);
     setMicrophoneSettings(result.status);
     if (!result.ok) {
-      setActionError(result.error ?? "Could not switch microphones.");
+      setActionError(result.error ?? t("controls.error.microphoneSwitch"));
     } else {
       setShowMicrophoneMenu(false);
     }
     setDevicePending(false);
-  }, []);
+  }, [t]);
 
   const done = useCallback(async (forceTerminal = false) => {
     setFinishPending("done");
@@ -167,10 +169,10 @@ export function RecordingControls() {
       return;
     }
     if (!result.ok) {
-      setActionError(result.error ?? "Could not stop the recording.");
+      setActionError(result.error ?? t("controls.error.stop"));
       setFinishPending(null);
     }
-  }, []);
+  }, [t]);
 
   const discard = useCallback(async (forceTerminal = false) => {
     setFinishPending("discard");
@@ -183,12 +185,12 @@ export function RecordingControls() {
       return;
     }
     if (!result.ok) {
-      const error = result.error ?? "Could not discard the recording.";
+      const error = result.error ?? t("controls.error.discard");
       setActionError(error);
       setFinishPending(null);
       window.alert(error);
     }
-  }, []);
+  }, [t]);
 
   const openTerminal = useCallback(async () => {
     setTerminalPending(true);
@@ -212,20 +214,21 @@ export function RecordingControls() {
   const narrationLanguage = narrationLanguageLabel(
     status?.narrationLanguage ?? DEFAULT_NARRATION_LANGUAGE,
   );
+  const systemDefaultLabel = t("controls.microphone.systemDefault");
   const activeMicrophoneLabel =
     status?.microphone.activeDevice?.label ??
     microphoneSettings?.selectedDeviceLabel ??
-    "System default";
+    systemDefaultLabel;
   const microphoneLabel =
     status?.microphone.state === "starting"
-      ? "Starting"
+      ? t("controls.microphone.starting")
       : status?.microphone.state === "stopping"
-        ? "Stopping"
+        ? t("controls.microphone.stopping")
         : microphoneOn
-          ? "On"
+          ? t("controls.microphone.on")
           : microphoneError
-            ? "Retry"
-            : "Off";
+            ? t("controls.microphone.retry")
+            : t("controls.microphone.off");
   const error =
     actionError ??
     status?.microphone.error ??
@@ -234,12 +237,12 @@ export function RecordingControls() {
     null;
   const captureLabel =
     status?.transition === "starting"
-      ? "Starting"
+      ? t("controls.capture.starting")
       : status?.transition === "stopping"
-        ? "Saving"
+        ? t("controls.capture.saving")
         : status?.transition === "discarding"
-          ? "Discarding"
-          : "Capturing";
+          ? t("controls.capture.discarding")
+          : t("controls.capture.capturing");
 
   return (
     <div
@@ -259,9 +262,9 @@ export function RecordingControls() {
           aria-describedby="recording-discard-description"
         >
           <div>
-            <h2 id="recording-discard-title">Discard this recording?</h2>
+            <h2 id="recording-discard-title">{t("controls.discard.title")}</h2>
             <p id="recording-discard-description">
-              Screen video, activity, recorded-terminal output, and voice segments will be permanently deleted.
+              {t("controls.discard.description")}
             </p>
           </div>
           <div className="recording-discard-actions">
@@ -271,14 +274,16 @@ export function RecordingControls() {
               disabled={finishPending === "discard"}
               onClick={() => setConfirmDiscard(false)}
             >
-              Keep recording
+              {t("controls.discard.keep")}
             </button>
             <button
               className="recording-confirm-discard"
               disabled={finishPending === "discard"}
               onClick={() => void discard()}
             >
-              {finishPending === "discard" ? "Discarding..." : "Discard recording"}
+              {finishPending === "discard"
+                ? t("controls.discard.pending")
+                : t("controls.discard.confirm")}
             </button>
           </div>
         </section>
@@ -293,9 +298,9 @@ export function RecordingControls() {
           aria-describedby="recording-terminal-description"
         >
           <div>
-            <h2 id="recording-terminal-title">A terminal command is still running</h2>
+            <h2 id="recording-terminal-title">{t("controls.terminalConfirm.title")}</h2>
             <p id="recording-terminal-description">
-              Closing the recording will stop the command and save its output as interrupted.
+              {t("controls.terminalConfirm.description")}
             </p>
           </div>
           <div className="recording-discard-actions">
@@ -303,7 +308,7 @@ export function RecordingControls() {
               className="recording-keep"
               onClick={() => setTerminalConfirm(null)}
             >
-              Keep recording
+              {t("controls.discard.keep")}
             </button>
             <button
               className={
@@ -319,8 +324,8 @@ export function RecordingControls() {
               }}
             >
               {terminalConfirm === "discard"
-                ? "Close terminal and discard"
-                : "Close terminal and save"}
+                ? t("controls.terminalConfirm.discard")
+                : t("controls.terminalConfirm.save")}
             </button>
           </div>
         </section>
@@ -330,20 +335,22 @@ export function RecordingControls() {
         <section
           ref={microphoneMenuRef}
           className="recording-microphone-menu"
-          aria-label="Choose microphone"
+          aria-label={t("controls.microphone.choose")}
         >
           <header>
-            <strong>Microphone</strong>
+            <strong>{t("controls.microphone.heading")}</strong>
             <span>
               {microphoneOn
-                ? `Using ${activeMicrophoneLabel}`
-                : `Next: ${microphoneSettings?.selectedDeviceLabel ?? "System default"}`}
+                ? t("controls.microphone.using", { device: activeMicrophoneLabel })
+                : t("controls.microphone.next", {
+                    device: microphoneSettings?.selectedDeviceLabel ?? systemDefaultLabel,
+                  })}
             </span>
           </header>
           <div
             className="recording-microphone-options"
             role="radiogroup"
-            aria-label="Audio input"
+            aria-label={t("controls.microphone.group")}
           >
             {microphoneSettings?.devices.map((device) => {
               const selected =
@@ -361,7 +368,7 @@ export function RecordingControls() {
                   <span>{device.label}</span>
                   {selected && (
                     <span className="recording-microphone-selected">
-                      Selected
+                      {t("controls.microphone.selected")}
                     </span>
                   )}
                 </button>
@@ -415,16 +422,30 @@ export function RecordingControls() {
               disabled={lifecycleBusy || microphoneBusy}
               aria-label={
                 microphoneOn
-                  ? `Mute ${activeMicrophoneLabel}. Narration is transcribed in ${narrationLanguage}.`
+                  ? t("controls.microphone.muteAria", {
+                      device: activeMicrophoneLabel,
+                      language: narrationLanguage,
+                    })
                   : microphoneError
-                    ? `Retry microphone. ${status?.microphone.error ?? ""}`
-                    : `Unmute ${microphoneSettings?.selectedDeviceLabel ?? "System default"} for ${narrationLanguage} narration`
+                    ? t("controls.microphone.retryAria", {
+                        error: status?.microphone.error ?? "",
+                      })
+                    : t("controls.microphone.unmuteAria", {
+                        device: microphoneSettings?.selectedDeviceLabel ?? systemDefaultLabel,
+                        language: narrationLanguage,
+                      })
               }
               aria-pressed={microphoneOn}
               title={
                 microphoneOn
-                  ? `Mute ${activeMicrophoneLabel} · ${narrationLanguage} transcript`
-                  : `Unmute ${microphoneSettings?.selectedDeviceLabel ?? "System default"} · ${narrationLanguage} transcript`
+                  ? t("controls.microphone.muteTitle", {
+                      device: activeMicrophoneLabel,
+                      language: narrationLanguage,
+                    })
+                  : t("controls.microphone.unmuteTitle", {
+                      device: microphoneSettings?.selectedDeviceLabel ?? systemDefaultLabel,
+                      language: narrationLanguage,
+                    })
               }
               onClick={() => void toggleMicrophone()}
             >
@@ -434,10 +455,10 @@ export function RecordingControls() {
             <button
               className="recording-microphone-menu-toggle"
               disabled={lifecycleBusy || microphoneBusy}
-              aria-label="Choose microphone"
+              aria-label={t("controls.microphone.choose")}
               aria-haspopup="dialog"
               aria-expanded={showMicrophoneMenu}
-              title="Choose microphone"
+              title={t("controls.microphone.choose")}
               onClick={() => {
                 setActionError(null);
                 setConfirmDiscard(false);
@@ -455,14 +476,16 @@ export function RecordingControls() {
             disabled={lifecycleBusy || terminalPending}
             aria-label={
               terminalStatus?.state === "closed"
-                ? "Open recorded terminal"
-                : `Focus recorded terminal. ${terminalStatus?.state ?? ""}`
+                ? t("controls.terminal.openAria")
+                : t("controls.terminal.focusAria", { state: terminalStatus?.state ?? "" })
             }
-            title="Open a terminal captured only with this recording"
+            title={t("controls.terminal.title")}
             onClick={() => void openTerminal()}
           >
             <TerminalIcon />
-            <span>{terminalPending ? "Opening" : "Terminal"}</span>
+            <span>
+              {terminalPending ? t("controls.terminal.opening") : t("controls.terminal.label")}
+            </span>
             {terminalStatus?.state !== "closed" && (
               <span
                 className={`recording-terminal-dot ${
@@ -482,10 +505,12 @@ export function RecordingControls() {
               setConfirmDiscard(true);
             }}
           >
-            Discard
+            {t("controls.discard.action")}
           </button>
           <button className="recording-done" disabled={lifecycleBusy} onClick={() => void done(false)}>
-            {finishPending === "done" || status?.transition === "stopping" ? "Saving..." : "Done"}
+            {finishPending === "done" || status?.transition === "stopping"
+              ? t("controls.done.pending")
+              : t("controls.done.action")}
           </button>
         </div>
         <span className="recording-drag-handle" aria-hidden />

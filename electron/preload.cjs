@@ -68,6 +68,9 @@ const IPC = {
   closeLibrary: "ui:close-library",
   recordingControlsExpanded: "ui:recording-controls-expanded",
   fitRecorderHeight: "ui:fit-recorder-height",
+  uiLocale: "ui:locale",
+  setUiLocale: "ui:set-locale",
+  uiLocaleChanged: "ui:locale-changed",
 };
 
 let recordingPrivacyWarningPending = false;
@@ -202,4 +205,11 @@ contextBridge.exposeInMainWorld("skillRecorder", {
   setRecordingControlsExpanded: (expanded) =>
     ipcRenderer.invoke(IPC.recordingControlsExpanded, expanded),
   fitRecorderHeight: (height) => ipcRenderer.send(IPC.fitRecorderHeight, height),
+  uiLocale: () => ipcRenderer.invoke(IPC.uiLocale),
+  setUiLocale: (locale) => ipcRenderer.invoke(IPC.setUiLocale, locale),
+  onUiLocaleChanged: (cb) => {
+    const listener = (_event, locale) => cb(locale);
+    ipcRenderer.on(IPC.uiLocaleChanged, listener);
+    return () => ipcRenderer.removeListener(IPC.uiLocaleChanged, listener);
+  },
 });

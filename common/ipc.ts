@@ -1,5 +1,6 @@
 import type { Analysis, AnalysisFeedback, AnalysisStep, Confidence } from "./analysis";
 import type { AutomationPlan, BuiltAutomation } from "./automation";
+import type { UiLocale } from "./locale";
 import type { MicrophoneDevice } from "./microphone";
 import type { NarrationLanguage } from "./narration";
 import type { ScreenSource } from "./screen";
@@ -497,6 +498,9 @@ export const IPC = {
   closeLibrary: "ui:close-library",
   recordingControlsExpanded: "ui:recording-controls-expanded",
   fitRecorderHeight: "ui:fit-recorder-height",
+  uiLocale: "ui:locale",
+  setUiLocale: "ui:set-locale",
+  uiLocaleChanged: "ui:locale-changed",
 } as const;
 
 /** Shape exposed on `window.skillRecorder` by the preload bridge. */
@@ -630,4 +634,10 @@ export interface SkillRecorderApi {
   /** Fit the compact recorder window to its rendered content height (fire-and-forget)
    *  so the fixed-width HUD never shows dead space or clips a revealed row. */
   fitRecorderHeight(height: number): void;
+  /** The interface language: the stored choice, else the OS locale. Unrelated to
+   *  the narration transcription language and to the generated skill's language. */
+  uiLocale(): Promise<UiLocale>;
+  /** Store an explicit interface language and apply it to every window. */
+  setUiLocale(locale: UiLocale): Promise<UiLocale>;
+  onUiLocaleChanged(cb: (locale: UiLocale) => void): () => void;
 }

@@ -16,7 +16,9 @@ import {
   narrationLanguageLabel,
   type NarrationLanguage,
 } from "../common/narration";
+import { UI_LOCALES, uiLocaleLabel, type UiLocale } from "../common/locale";
 import { formatMs } from "./format";
+import { useT, useUiLocale } from "./i18n";
 import { RecordingPrivacyWarning } from "./RecordingPrivacyWarning";
 import { WhatsRecorded } from "./WhatsRecorded";
 
@@ -46,6 +48,8 @@ function measureHudHeight(hud: HTMLElement): number {
 }
 
 export function Recorder() {
+  const t = useT();
+  const { locale: uiLocale, setLocale: setUiLocale } = useUiLocale();
   const [status, setStatus] = useState<RecorderStatus | null>(null);
   const [doctor, setDoctor] = useState<DoctorReport | null>(null);
   const [narrationStatus, setNarrationStatus] = useState<NarrationStatus | null>(null);
@@ -467,6 +471,25 @@ export function Recorder() {
               onClick={() => setShowNarrationSettings(false)}
             />
             <div id="recording-settings" className="narrate-settings">
+            <label htmlFor="app-language">{t("settings.appLanguage.label")}</label>
+            <div className="narrate-select-wrap">
+              <select
+                id="app-language"
+                value={uiLocale}
+                onChange={(event) => setUiLocale(event.currentTarget.value as UiLocale)}
+                title={t("settings.appLanguage.title")}
+              >
+                {UI_LOCALES.map(({ code }) => (
+                  <option key={code} value={code}>
+                    {uiLocaleLabel(code)}
+                  </option>
+                ))}
+              </select>
+              <span className="narrate-select-chevron" aria-hidden>
+                ▾
+              </span>
+            </div>
+
             <label htmlFor="narrate-language">Language</label>
             <div className="narrate-select-wrap">
               <select

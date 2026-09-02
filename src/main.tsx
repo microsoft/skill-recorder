@@ -5,6 +5,7 @@ import { Library } from "./Library";
 import { Recorder } from "./Recorder";
 import { RecordingControls } from "./RecordingControls";
 import { Terminal } from "./Terminal";
+import { UiLocaleProvider } from "./i18n";
 import "./App.css";
 
 const root = document.getElementById("root");
@@ -24,14 +25,16 @@ document.body.dataset.route = isLibrary
 
 createRoot(root).render(
   <React.StrictMode>
-    {isLibrary ? (
-      <Library />
-    ) : isRecordingControls ? (
-      <RecordingControls />
-    ) : isTerminal ? (
-      <Terminal />
-    ) : (
-      <Recorder />
-    )}
+    <UiLocaleProvider>
+      {isLibrary ? (
+        <Library />
+      ) : isRecordingControls ? (
+        <RecordingControls />
+      ) : isTerminal ? (
+        <Terminal />
+      ) : (
+        <Recorder />
+      )}
+    </UiLocaleProvider>
   </React.StrictMode>,
 );

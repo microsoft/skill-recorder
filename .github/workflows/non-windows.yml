@@ -22,8 +22,8 @@ jobs:
           - ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24.19.0
           cache: npm
@@ -63,7 +63,7 @@ jobs:
 
       - run: npm ci --ignore-scripts=false --dangerously-allow-all-scripts=false --strict-allow-scripts
       - name: Cache compliance source downloads
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .compliance-cache
           key: compliance-${{ runner.os }}-${{ hashFiles('third_party/compliance-policy.json') }}

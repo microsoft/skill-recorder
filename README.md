@@ -179,6 +179,15 @@ This project has adopted the [Microsoft Open Source Code of Conduct](https://ope
 For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or
 contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
 
+## Disclaimer
+
+Skill Recorder is a community-supported, open-source project rather than an officially
+supported Microsoft product. Help is available on a best-effort basis through
+[GitHub Issues](https://github.com/microsoft/skill-recorder/issues) — see
+[`SUPPORT.md`](SUPPORT.md) for details. Because skills are generated with AI, always
+review and validate them before use — AI-generated output may contain errors or
+unsupported patterns.
+
 ## Trademarks
 
 This project may contain trademarks or logos for projects, products, or services. Authorized use of Microsoft

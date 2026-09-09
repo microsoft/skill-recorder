@@ -1,25 +1,44 @@
-# TODO: The maintainer of this repo has not yet edited this file
-
-**REPO OWNER**: Do you want Customer Service & Support (CSS) support for this product/project?
-
-- **No CSS support:** Fill out this template with information about how to file issues and get help.
-- **Yes CSS support:** Fill out an intake form at [aka.ms/onboardsupport](https://aka.ms/onboardsupport). CSS will work with/help you to determine next steps.
-- **Not sure?** Fill out an intake as though the answer were "Yes". CSS will help you decide.
-
-*Then remove this first heading from this SUPPORT.MD file before publishing your repo.*
-
 # Support
 
-## How to file issues and get help  
+## How to file issues and get help
 
-This project uses GitHub Issues to track bugs and feature requests. Please search the existing 
-issues before filing new issues to avoid duplicates.  For new issues, file your bug or 
-feature request as a new Issue.
+Skill Recorder is a community-supported, open-source project rather than an officially
+supported Microsoft product — see the [Disclaimer](README.md#disclaimer). Support is
+community-based and best-effort.
 
-For help and questions about using this project, please **REPO MAINTAINER: INSERT INSTRUCTIONS HERE 
-FOR HOW TO ENGAGE REPO OWNERS OR COMMUNITY FOR HELP. COULD BE A STACK OVERFLOW TAG OR OTHER
-CHANNEL. WHERE WILL YOU HELP PEOPLE?**.
+This project uses [GitHub Issues](https://github.com/microsoft/skill-recorder/issues) to
+track bugs and feature requests. Please search the existing issues before filing a new one
+to avoid duplicates. For anything new, open an Issue.
 
-## Microsoft Support Policy  
+Before filing, it's worth checking:
 
-Support for this **PROJECT or PRODUCT** is limited to the resources listed above.
+- [`README.md`](README.md) — requirements, what gets captured, and how analysis works
+- [`INSTALL.md`](INSTALL.md) — installation, including the Windows source installer
+- [`WINDOWS-VALIDATION.md`](WINDOWS-VALIDATION.md) and
+  [`docs/windows-capture.md`](docs/windows-capture.md) — Windows-specific capture notes
+
+### What to include in a bug report
+
+- Your OS and version (macOS, Windows 11, or Ubuntu) and architecture
+- The Skill Recorder commit you installed or built from
+- Whether you're using an installer or a source checkout
+- What you expected to happen versus what actually happened
+- Any relevant error text from the app
+
+**Debug bundles.** Each recording in the Library has a small download icon in its session
+header that packages that session into a `.zip` alongside environment diagnostics. Because
+it's complete, it includes your capture data — screenshots, screen video, narration audio,
+and the analysis. Give it a quick review and remove anything private before sharing, and
+please don't attach one to a public GitHub issue. If a maintainer needs it, they'll point
+you to a private channel to send it.
+
+## Security issues
+
+Please do **not** report security vulnerabilities through public GitHub issues. Follow the
+process in [`SECURITY.md`](SECURITY.md) instead.
+
+## Microsoft Support Policy
+
+Support for Skill Recorder is limited to the resources listed above. It is not covered by
+Microsoft Customer Service & Support (CSS) or any Microsoft support program or service
+level agreement.

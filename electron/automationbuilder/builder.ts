@@ -22,6 +22,7 @@ import { createReadTools } from "../builders/read-tools";
 import { loadPersistedAnalysis } from "../describer/describer";
 import { createLogger } from "../logger";
 import { isValidSessionId, sessionDir } from "../recorder/session-store";
+import { isInside } from "../skillbuilder/builder";
 import { AUTOMATION_BUILDER_INSTRUCTIONS } from "./instructions";
 import { createAutomationBuilderTools } from "./tools";
 
@@ -217,10 +218,13 @@ export class AutomationBuilder extends AgentBuilder<LiveBuild> {
     const root = automationsRoot();
     const name = slugifySkillName(automation.name);
     const prior = loadPersistedAutomation(automation.sessionId);
-    // Re-export to the same folder if this session already exported one; otherwise pick
-    // a fresh, non-colliding directory so we never clobber an unrelated automation.
-    let dir = prior?.exportedPath ? path.dirname(prior.exportedPath) : path.join(root, name);
-    if (!prior?.exportedPath && existsSync(dir)) {
+    const priorDir = prior?.exportedPath ? path.dirname(prior.exportedPath) : null;
+    // Re-export to the same folder only when it already lives under the automations root;
+    // a relocated/tampered `exportedPath` must not be reused here. Otherwise pick a fresh,
+    // non-colliding directory so we never clobber an unrelated automation.
+    const reuse = priorDir !== null && isInside(root, priorDir);
+    let dir = reuse ? priorDir : path.join(root, name);
+    if (!reuse && existsSync(dir)) {
       let n = 2;
       while (existsSync(path.join(root, `${name}-${n}`))) n++;
       dir = path.join(root, `${name}-${n}`);

@@ -54,7 +54,7 @@ function skillsRoot(): string {
 }
 
 /** True when `dir` is `root` or nested inside it (so we can safely re-use it). */
-function isInside(root: string, dir: string): boolean {
+export function isInside(root: string, dir: string): boolean {
   const rel = path.relative(root, dir);
   return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
 }

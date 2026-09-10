@@ -75,7 +75,7 @@
   },
   "overrides": {
     "adm-zip": "$adm-zip",
-    "fast-uri": "^3.1.4",
+    "fast-uri": "^3.1.7",
     "global-agent": "^4.1.3",
     "sharp": "$sharp",
     "tar": "^7.5.21"

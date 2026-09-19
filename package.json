@@ -43,7 +43,7 @@
   "dependencies": {
     "@github/copilot": "1.0.78",
     "@github/copilot-sdk": "^1.0.6",
-    "@huggingface/transformers": "^4.2.0",
+    "@huggingface/transformers": "^4.3.0",
     "@secretlint/core": "^13.0.4",
     "@secretlint/secretlint-rule-pattern": "^13.0.4",
     "@secretlint/secretlint-rule-preset-recommend": "^13.0.4",
@@ -71,7 +71,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.2",
-    "adm-zip": "^0.6.0",
+    "adm-zip": "^0.6.1",
     "electron": "^43.0.0",
     "electron-builder": "^26.15.6",
     "typescript": "^7.0.0",

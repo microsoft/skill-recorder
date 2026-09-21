@@ -43,7 +43,7 @@
   "dependencies": {
     "@github/copilot": "1.0.78",
     "@github/copilot-sdk": "^1.0.6",
-    "@huggingface/transformers": "^4.2.0",
+    "@huggingface/transformers": "^4.3.0",
     "@secretlint/core": "^13.0.4",
     "@secretlint/secretlint-rule-pattern": "^13.0.4",
     "@secretlint/secretlint-rule-preset-recommend": "^13.0.4",
@@ -54,7 +54,7 @@
     "node-pty": "1.1.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
-    "sharp": "^0.35.3",
+    "sharp": "^0.35.4",
     "tesseract.js": "^7.0.0",
     "tesseract.js-core": "^7.0.0",
     "zod": "^4.3.6"

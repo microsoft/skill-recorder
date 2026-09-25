@@ -38,6 +38,10 @@ function copyStaticAssets(): void {
     path.join(rootDir, "electron", "audio", "capture-preload.cjs"),
     path.join(out, "audio", "capture-preload.cjs"),
   );
+  copyFileSync(
+    path.join(rootDir, "electron", "audio", "capture-preload-utils.cjs"),
+    path.join(out, "audio", "capture-preload-utils.cjs"),
+  );
 }
 
 export default defineConfig({

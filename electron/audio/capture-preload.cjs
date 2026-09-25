@@ -5,6 +5,7 @@
 // mirror electron/audio/recorder.ts.
 const { ipcRenderer } = require("electron");
 const { readFile } = require("node:fs/promises");
+const { handleRecorderStop, serializeError } = require("./capture-preload-utils.cjs");
 
 /** @type {MediaRecorder | null} */
 let recorder = null;
@@ -26,13 +27,6 @@ function microphoneConstraints(deviceId) {
     ...(typeof deviceId === "string" && deviceId && deviceId !== "default"
       ? { deviceId: { exact: deviceId } }
       : {}),
-  };
-}
-
-function serializeError(error) {
-  return {
-    message: error instanceof Error ? error.message : String(error),
-    name: error && typeof error.name === "string" ? error.name : "",
   };
 }
 
@@ -136,10 +130,12 @@ ipcRenderer.on("audio:start", async (_event, opts) => {
     };
     recorder.onstop = () => {
       // Wait for every queued chunk (including the final one) to be sent.
-      sendChain.then(() => {
-        const stopEpoch = requestedStopEpoch || epochNow();
-        cleanup();
-        ipcRenderer.send("audio:stopped", id, stopEpoch);
+      void handleRecorderStop({
+        sendChain,
+        id,
+        getStopEpoch: () => requestedStopEpoch || epochNow(),
+        cleanup,
+        send: (...args) => ipcRenderer.send(...args),
       });
     };
     recorder.onerror = (e) => {

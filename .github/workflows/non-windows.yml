@@ -110,5 +110,9 @@ jobs:
           "const m = await import('get-windows');
           if (typeof m.activeWindow !== 'function')
           throw new Error('get-windows activeWindow export is unavailable')"
+      - name: Type-check evals
+        if: runner.os == 'Linux'
+        run: npm run typecheck:evals
+
       - run: npm test
       - run: npm run build

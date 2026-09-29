@@ -18,7 +18,9 @@ import {
 } from "../common/narration";
 import { formatMs } from "./format";
 import { RecordingPrivacyWarning } from "./RecordingPrivacyWarning";
+import { UiLanguageSelect } from "./UiLanguageSelect";
 import { WhatsRecorded } from "./WhatsRecorded";
+import { recordingCountLabel, useI18n } from "./i18n";
 
 const IS_MAC = typeof navigator !== "undefined" && /Mac/i.test(navigator.userAgent);
 /** Mirrors the main-process global shortcut "CommandOrControl+Shift+R", per OS. */
@@ -46,6 +48,7 @@ function measureHudHeight(hud: HTMLElement): number {
 }
 
 export function Recorder() {
+  const { effective, t } = useI18n();
   const [status, setStatus] = useState<RecorderStatus | null>(null);
   const [doctor, setDoctor] = useState<DoctorReport | null>(null);
   const [narrationStatus, setNarrationStatus] = useState<NarrationStatus | null>(null);
@@ -131,7 +134,7 @@ export function Recorder() {
   const narrationLanguageName = narrationLanguageLabel(narrationLanguage);
   const advancedOn = sensitive?.enabled ?? true;
   const selectedScreenLabel =
-    screenSettings?.selectedSourceLabel ?? "Loading screens...";
+    screenSettings?.selectedSourceLabel ?? t("loadingScreens");
 
   useEffect(() => {
     if (recording) {
@@ -208,7 +211,7 @@ export function Recorder() {
   const toggle = useCallback(async () => {
     if (recording) {
       const res = await window.skillRecorder.stop();
-      if (!res.ok) window.alert(res.error ?? "Action failed");
+      if (!res.ok) window.alert(res.error ?? t("actionFailed"));
       applyRecorderStatus(await window.skillRecorder.status());
       return;
     }
@@ -218,7 +221,7 @@ export function Recorder() {
       setShowRecordingWarning(true);
       return;
     }
-    if (!res.ok) window.alert(res.error ?? "Action failed");
+    if (!res.ok) window.alert(res.error ?? t("actionFailed"));
     applyRecorderStatus(await window.skillRecorder.status());
   }, [applyRecorderStatus, recording]);
 
@@ -227,7 +230,7 @@ export function Recorder() {
     const res = await window.skillRecorder.confirmStart();
     if (!res.ok) {
       setWarningStarting(false);
-      window.alert(res.error ?? "Could not start recording.");
+      window.alert(res.error ?? t("couldNotStartRecording"));
       return;
     }
     setShowRecordingWarning(false);
@@ -255,12 +258,12 @@ export function Recorder() {
   const selectNarrationLanguage = useCallback(
     async (value: string) => {
       if (!isNarrationLanguage(value)) {
-        window.alert("Unsupported narration language.");
+        window.alert(t("unsupportedNarrationLanguage"));
         return;
       }
       setSelectedNarrationLanguage(value);
       const result = await window.skillRecorder.setNarrationLanguage(value);
-      if (!result.ok) window.alert(result.error ?? "Could not change the narration language.");
+      if (!result.ok) window.alert(result.error ?? t("narrationLanguageSaveFailed"));
       applyRecorderStatus(await window.skillRecorder.status());
     },
     [applyRecorderStatus],
@@ -276,7 +279,7 @@ export function Recorder() {
     setMicrophoneSettings(result.status);
     if (!result.ok) {
       setMicrophoneActionError(
-        result.error ?? "Could not update the narration preference.",
+        result.error ?? t("updateNarrationFailed"),
       );
       setShowNarrationSettings(true);
     }
@@ -290,7 +293,7 @@ export function Recorder() {
     setMicrophoneSettings(result.status);
     if (!result.ok) {
       setMicrophoneActionError(
-        result.error ?? "Could not select that microphone.",
+        result.error ?? t("selectMicrophoneFailed"),
       );
     }
     setMicrophonePending(false);
@@ -302,7 +305,7 @@ export function Recorder() {
     const result = await window.skillRecorder.selectScreen(sourceId);
     setScreenSettings(result.status);
     if (!result.ok) {
-      setScreenActionError(result.error ?? "Could not select that screen.");
+      setScreenActionError(result.error ?? t("selectScreenFailed"));
     }
     setScreenPending(false);
   }, []);
@@ -313,7 +316,7 @@ export function Recorder() {
 
   const downloadNarrationModel = useCallback(async () => {
     const res = await window.skillRecorder.downloadNarrationModel();
-    if (!res.ok) window.alert(res.error ?? "Could not download the voice transcription model.");
+    if (!res.ok) window.alert(res.error ?? t("downloadVoiceModelFailed"));
   }, []);
 
   const toggleAdvanced = useCallback(async () => {
@@ -324,14 +327,14 @@ export function Recorder() {
     const res = await window.skillRecorder.setAdvancedProtection(next);
     if (!res.ok) {
       void window.skillRecorder.sensitiveModelStatus().then(setSensitive);
-      window.alert(res.error ?? "Could not update advanced protection.");
+      window.alert(res.error ?? t("updateAdvancedProtectionFailed"));
     }
     setAdvancedPending(false);
   }, [sensitive]);
 
   const downloadSensitiveModels = useCallback(async () => {
     const res = await window.skillRecorder.downloadSensitiveModels();
-    if (!res.ok) window.alert(res.error ?? "Could not download the protection models.");
+    if (!res.ok) window.alert(res.error ?? t("downloadProtectionModelsFailed"));
   }, []);
 
   return (
@@ -341,7 +344,7 @@ export function Recorder() {
           className={`record ${recording ? "on" : ""}`}
           onClick={toggle}
           disabled={transitioning || microphonePending || screenPending}
-          aria-label={recording ? "Stop recording" : "Start recording"}
+          aria-label={recording ? t("stopRecording") : t("startRecording")}
         >
           <span className="record-glyph" />
         </button>
@@ -350,14 +353,14 @@ export function Recorder() {
         </div>
         <div className="transport-sub">
           {recording
-            ? `${status?.eventCount ?? 0} events captured`
+            ? t("eventsCaptured", { count: status?.eventCount ?? 0 })
             : justSaved
-              ? "Capture saved. Open Sessions to analyze"
+              ? t("captureSaved")
               : justDiscarded
-                ? "Recording discarded"
-              : screenSettings?.error
-                ? "Screen capture needs attention"
-                : `Ready to capture · ${selectedScreenLabel}`}
+                ? t("recordingDiscarded")
+                : screenSettings?.error
+                  ? t("screenNeedsAttention")
+                  : t("readyToCapture", { screen: selectedScreenLabel })}
         </div>
       </div>
 
@@ -402,28 +405,28 @@ export function Recorder() {
               </svg>
             </span>
             <span className="narrate-text">
-              <span className="narrate-label">Narrate</span>
+              <span className="narrate-label">{t("narrate")}</span>
               <span className="narrate-sub">
                 {microphonePending
-                  ? "Requesting microphone access..."
+                  ? t("requestingMicrophoneAccess")
                   : microphoneActionError || microphoneSettings?.error
-                    ? "Microphone needs attention"
+                    ? t("microphoneNeedsAttention")
                     : recording
                       ? narrate
-                        ? `Listening · ${narrationLanguageName}`
-                        : "Voice off for this recording"
+                        ? t("listeningLanguage", { language: narrationLanguageName })
+                        : t("voiceOffForRecording")
                       : narrate
                         ? narrationLanguageName
-                        : "Explain out loud (optional)"}
+                        : t("explainOutLoudOptional")}
               </span>
             </span>
           </button>
           <button
             className={`narrate-settings-toggle ${showNarrationSettings ? "open" : ""}`}
-            aria-label="Recording settings"
+            aria-label={t("recordingSettings")}
             aria-controls="recording-settings"
             aria-expanded={showNarrationSettings}
-            title="Recording settings"
+            title={t("recordingSettings")}
             disabled={microphonePending || screenPending || recording || transitioning}
             onClick={() => {
               setMicrophoneActionError(null);
@@ -467,7 +470,8 @@ export function Recorder() {
               onClick={() => setShowNarrationSettings(false)}
             />
             <div id="recording-settings" className="narrate-settings">
-            <label htmlFor="narrate-language">Language</label>
+            <UiLanguageSelect />
+            <label htmlFor="narrate-language">{t("language")}</label>
             <div className="narrate-select-wrap">
               <select
                 id="narrate-language"
@@ -476,7 +480,7 @@ export function Recorder() {
                 onChange={(event) =>
                   void selectNarrationLanguage(event.currentTarget.value)
                 }
-                title="The transcript stays in this language"
+                title={t("transcriptLanguageHelp")}
               >
                 {NARRATION_LANGUAGES.map(({ code, label }) => (
                   <option key={code} value={code}>
@@ -489,7 +493,7 @@ export function Recorder() {
               </span>
             </div>
 
-            <label htmlFor="narrate-microphone">Microphone</label>
+            <label htmlFor="narrate-microphone">{t("microphone")}</label>
             <div className="narrate-select-wrap">
               <select
                 id="narrate-microphone"
@@ -504,14 +508,14 @@ export function Recorder() {
                     </option>
                   ))
                 ) : (
-                  <option value="">Loading microphones...</option>
+                  <option value="">{t("loadingMicrophones")}</option>
                 )}
               </select>
               <span className="narrate-select-chevron" aria-hidden>
                 ▾
               </span>
             </div>
-            <label htmlFor="recording-screen">Screen</label>
+            <label htmlFor="recording-screen">{t("screen")}</label>
             <div className="narrate-select-wrap">
               <select
                 id="recording-screen"
@@ -533,7 +537,7 @@ export function Recorder() {
                   ))
                 ) : (
                   <option value="">
-                    {screenSettings ? "No screens available" : "Loading screens..."}
+                    {screenSettings ? t("noScreensAvailable") : t("loadingScreens")}
                   </option>
                 )}
               </select>
@@ -605,11 +609,11 @@ export function Recorder() {
           </svg>
         </span>
         <span className="privacy-note-text">
-          <span className="privacy-note-title">Records your screen and activity</span>
-          <span className="privacy-note-sub">See exactly what's captured</span>
+          <span className="privacy-note-title">{t("recordsScreenAndActivity")}</span>
+          <span className="privacy-note-sub">{t("seeExactlyWhatsCaptured")}</span>
         </span>
         {!advancedOn ? (
-          <span className="privacy-note-badge is-off">Protection off</span>
+          <span className="privacy-note-badge is-off">{t("protectionOff")}</span>
         ) : null}
         <span className="privacy-note-chevron" aria-hidden>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -629,10 +633,10 @@ export function Recorder() {
         onClick={openLibrary}
         aria-label={
           pendingCount > 0
-            ? `Review sessions, ${pendingCount} ready to analyze`
+            ? t("reviewReadyAria", { count: pendingCount })
             : sessionCount === 0
-              ? "Review sessions, nothing recorded yet"
-              : `Review sessions, ${sessionCount} recorded`
+              ? t("reviewEmptyAria")
+              : t("reviewRecordedAria", { count: sessionCount })
         }
       >
         <span className="sessions-open-icon" aria-hidden>
@@ -661,15 +665,15 @@ export function Recorder() {
         </span>
         <span className="sessions-open-text">
           <span className="sessions-open-label">
-            Review sessions
+            {t("reviewSessions")}
             {pendingCount > 0 && <span className="sessions-open-flag">{pendingCount}</span>}
           </span>
           <span className={`sessions-open-sub ${pendingCount > 0 ? "is-new" : ""}`}>
             {pendingCount > 0
-              ? `${pendingCount} ready to analyze`
+              ? t("readyToAnalyzeCount", { count: pendingCount })
               : sessionCount === 0
-                ? "No recordings yet"
-                : `${sessionCount} recording${sessionCount === 1 ? "" : "s"}`}
+                ? t("noRecordingsYet")
+                : recordingCountLabel(effective, t, sessionCount)}
           </span>
         </span>
         <span className="sessions-open-chevron" aria-hidden>
@@ -688,9 +692,9 @@ export function Recorder() {
       {doctor && (
         <div className="doctor">
           <Row
-            label="GitHub Copilot"
+            label={t("githubCopilot")}
             status={doctor.copilotCli.ok ? "good" : "bad"}
-            note={doctor.copilotCli.ok ? "found" : "missing"}
+            note={doctor.copilotCli.ok ? t("found") : t("missing")}
           />
           {narrate && narrationStatus && (
             <VoiceModelRow
@@ -770,19 +774,20 @@ function VoiceModelRow({
   recording: boolean;
   onDownload: () => void;
 }) {
+  const { t } = useI18n();
   if (status.phase === "downloading") {
     const progress = status.progress == null ? "downloading" : `${status.progress}%`;
-    return <Row label="voice transcription" status="warn" note={progress} />;
+    return <Row label={t("voiceTranscription")} status="warn" note={progress} />;
   }
   if (status.phase === "loading") {
-    return <Row label="voice transcription" status="warn" note="preparing" />;
+    return <Row label={t("voiceTranscription")} status="warn" note={t("preparing")} />;
   }
   if (status.model === "ready") {
-    return <Row label="voice transcription" status="good" note="on-device · multilingual" />;
+    return <Row label={t("voiceTranscription")} status="good" note={t("onDeviceMultilingual")} />;
   }
   return (
     <Row
-      label="voice transcription"
+      label={t("voiceTranscription")}
       status="warn"
       note={
         status.model === "error"
@@ -810,21 +815,22 @@ function SensitiveModelRow({
   recording: boolean;
   onDownload: () => void;
 }) {
+  const { t } = useI18n();
   if (!status.enabled) return null;
   if (status.ocr === "downloading") {
     const note = status.progress == null ? "downloading" : `${Math.round(status.progress)}%`;
-    return <Row label="advanced protection" status="warn" note={note} />;
+    return <Row label={t("advancedProtection")} status="warn" note={note} />;
   }
   if (status.ocr === "ready") {
-    return <Row label="advanced protection" status="good" note="on-device" />;
+    return <Row label={t("advancedProtection")} status="good" note={t("onDevice")} />;
   }
   const failed = status.ocr === "error";
   return (
     <Row
-      label="advanced protection"
+      label={t("advancedProtection")}
       status="bad"
-      note={failed ? "download failed" : "not downloaded"}
-      action={{ label: failed ? "retry" : "download", disabled: recording, onClick: onDownload }}
+      note={failed ? t("downloadFailed") : t("notDownloaded")}
+      action={{ label: failed ? t("retry") : t("download"), disabled: recording, onClick: onDownload }}
     />
   );
 }

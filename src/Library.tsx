@@ -39,6 +39,7 @@ import {
   SkillStepTiles,
 } from "./plan-edit";
 import { formatBytes, formatDur, formatWhen, shortLabel } from "./format";
+import { useI18n } from "./i18n";
 import { skillPlacementModel, skillTargetFor } from "./skill-placement";
 import { SkillReviewModal } from "./SkillReviewModal";
 import { initialSkillReviewState, SkillOperationGuard, skillReviewBusy, skillReviewReducer } from "./skill-review-state";
@@ -46,6 +47,7 @@ import { SensitiveReview } from "./SensitiveReview";
 import { AnalysisRecovery, completeSignIn, type AnalysisRun } from "./analysis-recovery";
 
 export function Library() {
+  const { t } = useI18n();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -78,7 +80,7 @@ export function Library() {
     setNotice(null);
     const res = await window.skillRecorder.deleteSession(id);
     if (!res.ok) {
-      setNotice(res.error ?? "Could not delete this recording.");
+      setNotice(res.error ?? t("couldNotDeleteRecording"));
       return;
     }
     setSessions((prev) => {
@@ -99,11 +101,11 @@ export function Library() {
     <div className="lib">
       <aside className="lib-list">
         <div className="lib-list-head">
-          <span className="eyebrow">Sessions</span>
+          <span className="eyebrow">{t("sessions")}</span>
           <span className="pill">{sessions.length}</span>
         </div>
         {notice && (
-          <button className="sess-notice" onClick={() => setNotice(null)} title="Dismiss">
+          <button className="sess-notice" onClick={() => setNotice(null)} title={t("dismiss")}>
             {notice}
           </button>
         )}
@@ -127,8 +129,8 @@ export function Library() {
           />
         ) : (
           <div className="detail-empty">
-            <span className="eyebrow">No session selected</span>
-            <p>Pick a recording on the left to review its reconstructed intent and steps.</p>
+            <span className="eyebrow">{t("noSessionSelected")}</span>
+            <p>{t("pickRecording")}</p>
           </div>
         )}
       </main>
@@ -151,22 +153,25 @@ function SessionsList({
   onSelect: (id: string) => void;
   onDelete: (id: string) => void | Promise<void>;
 }) {
+  const { effective, t } = useI18n();
   const [confirmId, setConfirmId] = useState<string | null>(null);
 
   if (sessions.length === 0) {
-    return <p className="sessions-empty">{loaded ? "No recordings yet." : "Loading…"}</p>;
+    return <p className="sessions-empty">{loaded ? t("noRecordingsYet") : t("loading")}</p>;
   }
   return (
     <ul className="sess-list">
       {sessions.map((s) =>
         confirmId === s.id ? (
           <li key={s.id}>
-            <div className="sess-confirm" role="alertdialog" aria-label="Confirm delete">
+            <div className="sess-confirm" role="alertdialog" aria-label={t("confirmDelete")}>
               <div className="sess-confirm-text">
-                <span className="sess-confirm-title">Delete this recording?</span>
+                <span className="sess-confirm-title">{t("deleteRecording")}</span>
                 <span className="sess-confirm-sub">
-                  This cannot be undone.
-                  {s.sizeBytes != null && ` Frees ${formatBytes(s.sizeBytes)} from this device.`}
+                  {t("cannotUndo")}
+                  {s.sizeBytes != null && (effective === "zh-CN"
+                    ? ` 这将从此设备释放 ${formatBytes(s.sizeBytes)}。`
+                    : ` Frees ${formatBytes(s.sizeBytes)} from this device.`)}
                 </span>
               </div>
               <div className="sess-confirm-actions">
@@ -193,46 +198,46 @@ function SessionsList({
                 onClick={() => onSelect(s.id)}
               >
                 <div className="sess-top">
-                  <span className="sess-when">{formatWhen(s.startedAt)}</span>
+                  <span className="sess-when">{formatWhen(s.startedAt, effective)}</span>
                   <span className="sess-tags">
-                    {s.hasSkill && <span className="tag ok">skill</span>}
-                    {s.hasAutomation && <span className="tag auto">automation</span>}
+                    {s.hasSkill && <span className="tag ok">{t("skill")}</span>}
+                    {s.hasAutomation && <span className="tag auto">{t("automation")}</span>}
                     {!s.hasSkill && !s.hasAutomation && s.analysis && (
-                      <span className="tag an">analyzed</span>
+                      <span className="tag an">{t("analyzed")}</span>
                     )}
                     {!s.hasSkill && !s.hasAutomation && !s.analysis && !s.processed && (
-                      <span className="tag warn">processing</span>
+                      <span className="tag warn">{t("processing")}</span>
                     )}
                     {!s.hasSkill && !s.hasAutomation && !s.analysis && s.processed && (
-                      <span className="tag recorded">recorded</span>
+                      <span className="tag recorded">{t("recorded")}</span>
                     )}
                   </span>
                 </div>
                 <div className="sess-intent">
                   {s.analysis
                     ? s.analysis.title?.trim() || shortLabel(s.analysis.intent)
-                    : "Not analyzed yet"}
+                    : t("notAnalyzedYet")}
                 </div>
                 <div className="sess-sub">
-                  {s.durationMs != null && <span>{formatDur(s.durationMs)}</span>}
+                  {s.durationMs != null && <span>{formatDur(s.durationMs, effective)}</span>}
                   {s.sizeBytes != null && (
                     <span
                       className="sess-size"
-                      title={`${s.sizeBytes.toLocaleString()} bytes used by this recording`}
+                      title={t("bytesUsedByRecording", { bytes: s.sizeBytes.toLocaleString() })}
                     >
                       {formatBytes(s.sizeBytes)}
                     </span>
                   )}
-                  {s.analysis && <span>{s.analysis.stepCount} steps</span>}
-                  {s.hasVideo && <span>video</span>}
-                  {s.hasAudio && !s.hasNarration && <span>voice pending</span>}
-                  {s.hasNarration && <span>voice</span>}
+                  {s.analysis && <span>{t("stepCount", { count: s.analysis.stepCount })}</span>}
+                  {s.hasVideo && <span>{t("video")}</span>}
+                  {s.hasAudio && !s.hasNarration && <span>{t("voicePending")}</span>}
+                  {s.hasNarration && <span>{t("voice")}</span>}
                 </div>
               </button>
               <button
                 className="sess-del"
-                aria-label={`Delete recording from ${formatWhen(s.startedAt)}`}
-                title="Delete recording"
+                aria-label={`${t("deleteRecordingTitle")} ${formatWhen(s.startedAt, effective)}`}
+                title={t("deleteRecordingTitle")}
                 onClick={() => setConfirmId(s.id)}
               >
                 <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden>
@@ -293,6 +298,7 @@ const SavedGlyph = () => (
  * download. It says nothing about where to send the file — that's shared separately.
  */
 function DebugDownload({ sessionId }: { sessionId: string }) {
+  const { t } = useI18n();
   const [phase, setPhase] = useState<"idle" | "confirm" | "saving" | "saved" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -304,7 +310,7 @@ function DebugDownload({ sessionId }: { sessionId: string }) {
     if (res.ok) setPhase("saved");
     else if (res.canceled) setPhase("idle");
     else {
-      setErrorMsg(res.error ?? "Couldn't create the debug bundle.");
+      setErrorMsg(res.error ?? t("couldntCreateDebugBundle"));
       setPhase("error");
     }
   }, [sessionId]);
@@ -329,16 +335,16 @@ function DebugDownload({ sessionId }: { sessionId: string }) {
 
   const label =
     phase === "saving"
-      ? "Preparing debug bundle…"
+      ? t("debugPreparing")
       : phase === "saved"
-        ? "Debug bundle saved"
-        : "Download details for debugging";
+        ? t("debugSaved")
+        : t("debugDownload");
 
   return (
     <div className="debug-dl">
       {phase === "error" && (
         <span className="debug-dl-note" title={errorMsg}>
-          Couldn't save
+          {t("couldntSave")}
         </span>
       )}
       <button
@@ -390,21 +396,19 @@ function DebugDownload({ sessionId }: { sessionId: string }) {
                   <circle cx="10" cy="12.4" r="1.1" fill="currentColor" />
                 </svg>
               </span>
-              <h2 id="debug-dl-title">Includes private information</h2>
+              <h2 id="debug-dl-title">{t("includesPrivateInformation")}</h2>
             </header>
 
             <p className="sheet-lead" id="debug-dl-desc">
-              This bundle is everything captured in this recording — screen video, screenshots,
-              visited URLs, clipboard contents, and any voice narration and transcript. Share it
-              only with people you trust.
+              {t("debugPrivateDetail")}
             </p>
 
             <div className="sheet-actions">
               <button className="linky" onClick={() => setPhase("idle")}>
-                Cancel
+                {t("cancel")}
               </button>
               <button className="record-cta" onClick={() => void download()}>
-                Download .zip
+                {t("downloadZip")}
               </button>
             </div>
           </div>
@@ -430,6 +434,7 @@ function AnalysisError({
   onSignInStart?: () => boolean;
   onSignInEnd?: (canceled: boolean) => void;
 }) {
+  const { t } = useI18n();
   const [signIn, setSignIn] = useState<CopilotSignInResult | null>(null);
   const [waiting, setWaiting] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
@@ -466,13 +471,13 @@ function AnalysisError({
     onSignInEnd?.(true);
     setWaiting(false);
     setFailure(onAuthenticated
-      ? "Sign-in canceled. Analysis will not retry automatically."
-      : "Sign-in canceled.");
+      ? t("signInCanceledNoRetry")
+      : t("signInCanceled"));
     try {
       await window.skillRecorder.cancelCopilotSignIn(id);
     } catch (err) {
       if (live.current && generation.current === canceledGeneration) {
-        setFailure(`Could not cancel sign-in: ${String(err)}`);
+        setFailure(t("couldNotCancelSignIn", { error: String(err) }));
       }
     }
   };
@@ -516,29 +521,29 @@ function AnalysisError({
       <p>{error}</p>
       <div className="signin-row">
         <button className="row-action" onClick={() => void openSignIn()} disabled={waiting}>
-          {waiting ? "Waiting for browser sign-in…" : "Sign in to Copilot"}
+          {waiting ? t("waitingForBrowserSignIn") : t("signInToCopilot")}
         </button>
         {waiting && (
           <>
-            <span role="status">Follow the app prompts and finish signing in in your browser.</span>
-            <button className="linky" onClick={() => void cancelSignIn()}>Cancel sign-in</button>
+            <span role="status">{t("followAppPrompts")}</span>
+            <button className="linky" onClick={() => void cancelSignIn()}>{t("cancelSignIn")}</button>
           </>
         )}
         {signIn?.ok && (
-          <span>Signed in to Copilot. Try your action again when ready.</span>
+          <span>{t("signedInToCopilot")}</span>
         )}
         {signIn && !signIn.ok && (
           <span>{signIn.error ?? (
-            signIn.status === "canceled" ? "Sign-in canceled." :
-            signIn.status === "timed-out" ? "Sign-in timed out. Try again." :
-            "Couldn't sign in to Copilot."
+            signIn.status === "canceled" ? t("signInCanceled") :
+            signIn.status === "timed-out" ? t("signInTimedOut") :
+            t("couldntSignInToCopilot")
           )}</span>
         )}
         {failure && <span role="alert">{failure}</span>}
       </div>
       {signIn && !signIn.ok && signIn.command && (
         <>
-          <p className="signin-manual">Or run this command yourself:</p>
+          <p className="signin-manual">{t("runThisCommandYourself")}</p>
           <code className="signin-command">{signIn.command}</code>
         </>
       )}
@@ -555,6 +560,7 @@ function AnalysisWorkspace({
   narrationStatus: NarrationStatus | null;
   onChanged: () => void | Promise<void>;
 }) {
+  const { effective, t } = useI18n();
   const sessionId = summary.id;
   const voicePending = summary.hasAudio && !summary.hasNarration;
   const voiceLanguage = narrationLanguageLabel(
@@ -685,7 +691,7 @@ function AnalysisWorkspace({
       setError(null);
       setAnalyzing(true);
       setFailedRun(null);
-      setStatusLine("Starting…");
+      setStatusLine(t("starting"));
       let signedOut = false;
       try {
         const res = await window.skillRecorder.analyze(sessionId);
@@ -697,7 +703,7 @@ function AnalysisWorkspace({
           // Preserve the existing narration/redaction pipeline and result handling.
           setReview(res.review ?? null);
         } else {
-          const message = res.error ?? "Analysis failed";
+          const message = res.error ?? t("analysisFailed");
           signedOut = isCopilotSignedOutError(message);
           setError(message);
           setFailedRun(token);
@@ -793,7 +799,7 @@ function AnalysisWorkspace({
       setEditing(false);
     } else {
       setFailedRun(null);
-      setError(res.error ?? "Could not save your changes");
+      setError(res.error ?? t("saveChangesFailed"));
     }
     void onChanged();
   }, [sessionId, draftTitle, draftIntent, onChanged]);
@@ -845,8 +851,8 @@ function AnalysisWorkspace({
     <section className="ws">
       <div className="ws-head">
         <div className="ws-titles">
-          <span className="eyebrow">Analysis</span>
-          <span className="ws-when">{formatWhen(summary.startedAt)}</span>
+          <span className="eyebrow">{t("analysis")}</span>
+          <span className="ws-when">{formatWhen(summary.startedAt, effective)}</span>
         </div>
         <DebugDownload sessionId={sessionId} />
       </div>
@@ -862,8 +868,8 @@ function AnalysisWorkspace({
         {voiceStale && !analyzing && !signInPending && (
           <div className="voice-card">
             <div className="voice-card-copy">
-              <strong>Voice transcript added after this analysis</strong>
-              <span>Re-analyze to include it. This replaces the current summary and any edits.</span>
+              <strong>{t("transcriptChanged")}</strong>
+              <span>{t("reanalyzeHelp")}</span>
             </div>
             {confirmReanalysis ? (
               <div className="voice-card-actions">
@@ -889,17 +895,17 @@ function AnalysisWorkspace({
         )}
 
         {!summary.processed && (
-          <p className="ws-note">Still processing this recording… try again in a moment.</p>
+          <p className="ws-note">{t("stillProcessing")}</p>
         )}
 
         {summary.processed && !analysis && !analyzing && (
           <div className="ws-empty">
-            <p className="ws-empty-lead">See what you did in this recording, step by step.</p>
+            <p className="ws-empty-lead">{t("seeSteps")}</p>
             <button className="record-cta" onClick={() => void run()} disabled={signInPending}>
               Analyze recording
             </button>
             <details className="analyze-disclosure">
-              <summary>What gets sent to GitHub Copilot</summary>
+              <summary>{t("sentToCopilot")}</summary>
               <p>
                 When you choose Analyze, the event timeline (window and document titles, URLs, and
                 clipboard previews), plus screen images, narration text, and other content you
@@ -932,7 +938,7 @@ function AnalysisWorkspace({
           <div className="status-line">
             <span className="spinner" />
             <span className="status-text">
-              {voiceBusy ? narrationWorkLabel(narrationStatus) : statusLine || "Working…"}
+              {voiceBusy ? narrationWorkLabel(t, narrationStatus) : statusLine || t("working")}
             </span>
             <button className="linky status-cancel" onClick={cancel}>
               Cancel
@@ -942,7 +948,7 @@ function AnalysisWorkspace({
 
         {analyzing && narrationStatus?.phase === "downloading" && (
           <p className="voice-analysis-note">
-            First analysis downloads the ~250 MB voice model once — later runs skip this.
+            {t("voiceModelFirstRun")}
           </p>
         )}
 
@@ -959,7 +965,7 @@ function AnalysisWorkspace({
           <div className="ws-read">
             <div className="summary">
               <div className="summary-head">
-                <span className="eyebrow">What you did</span>
+                <span className="eyebrow">{t("whatYouDid")}</span>
                 {!editing && (
                   <button className="linky" onClick={startEdit}>
                     Edit
@@ -970,11 +976,11 @@ function AnalysisWorkspace({
               {editing ? (
                 <div className="summary-edit">
                   <label className="edit-field">
-                    <span className="edit-label">Name</span>
+                    <span className="edit-label">{t("name")}</span>
                     <input
                       className="edit-title"
                       value={draftTitle}
-                      placeholder="Short name, e.g. Research habit articles"
+                      placeholder={t("shortNamePlaceholder")}
                       autoFocus
                       onChange={(e) => setDraftTitle(e.target.value)}
                       onKeyDown={(e) => {
@@ -984,14 +990,14 @@ function AnalysisWorkspace({
                         } else if (e.key === "Escape") setEditing(false);
                       }}
                     />
-                    <span className="edit-hint">Appears in your sessions list</span>
+                    <span className="edit-hint">{t("appearsInList")}</span>
                   </label>
                   <label className="edit-field">
-                    <span className="edit-label">Goal</span>
+                    <span className="edit-label">{t("goal")}</span>
                     <textarea
                       className="edit-intent"
                       value={draftIntent}
-                      placeholder="One sentence: what were you trying to do?"
+                      placeholder={t("goalPlaceholder")}
                       onChange={(e) => setDraftIntent(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === "Escape") setEditing(false);
@@ -1019,8 +1025,8 @@ function AnalysisWorkspace({
 
             <div className="story-edit">
               <div className="summary-head">
-                <span className="eyebrow">Steps</span>
-                <span className="edit-hint">Click any step to edit · reorder, add or remove — saved automatically</span>
+                <span className="eyebrow">{t("steps")}</span>
+                <span className="edit-hint">{t("editStepsHint")}</span>
               </div>
               <AnalysisStepTiles steps={steps} onChange={onStepsChange} />
             </div>
@@ -1033,7 +1039,7 @@ function AnalysisWorkspace({
           <span className="foot-status">{launchFootStatus(summary)}</span>
           <div className="ws-foot-actions">
             {summary.hasSkill && (
-              <button className="secondary" onClick={() => setLaunch("skill")} title="Open the skill built from this recording">
+              <button className="secondary" onClick={() => setLaunch("skill")} title={t("openSkillTitle")}>
                 Open skill →
               </button>
             )}
@@ -1041,7 +1047,7 @@ function AnalysisWorkspace({
               <button
                 className="secondary"
                 onClick={() => setLaunch("automation")}
-                title="Open the automation built from this recording"
+                title={t("openAutomationTitle")}
               >
                 Open automation →
               </button>
@@ -1049,9 +1055,9 @@ function AnalysisWorkspace({
             <button
               className="record-cta"
               onClick={() => setLaunch("picker")}
-              title="Turn this recording into a skill or an automation"
+              title={t("createPrompt")}
             >
-              {summary.hasSkill || summary.hasAutomation ? "Create another →" : "Create…"}
+              {summary.hasSkill || summary.hasAutomation ? t("createAnother") : t("create")}
             </button>
           </div>
         </div>
@@ -1060,16 +1066,16 @@ function AnalysisWorkspace({
   );
 }
 
-function narrationWorkLabel(status: NarrationStatus | null): string {
-  if (!status) return "Working…";
-  if (status.phase === "transcribing") return "Transcribing voice…";
-  if (status.phase === "loading") return "Preparing voice model…";
+function narrationWorkLabel(t: ReturnType<typeof useI18n>["t"], status: NarrationStatus | null): string {
+  if (!status) return t("working");
+  if (status.phase === "transcribing") return t("transcribingVoice");
+  if (status.phase === "loading") return t("preparingVoiceModel");
   if (status.phase === "downloading") {
     return status.progress == null
       ? "Downloading voice model…"
       : `Downloading voice model… ${status.progress}%`;
   }
-  return "Working…";
+  return t("working");
 }
 
 /* --- Final stage: target picker + builders -------------------------------- */
@@ -1144,9 +1150,10 @@ function SkillBuilderView({
   hasSkill: boolean;
   onClose: () => void;
 }) {
+  const { effective, t } = useI18n();
   const defaultPlacementFor = useCallback(
     (architecture: SkillArchitecture): SkillPlacement =>
-      skillPlacementModel(skillTargetFor(architecture)).defaultPlacement,
+      skillPlacementModel(skillTargetFor(architecture), t, effective).defaultPlacement,
     [],
   );
   // If this recording is already a skill, hold on a spinner until we've loaded it,
@@ -1167,7 +1174,7 @@ function SkillBuilderView({
   const reviewButtonRef = useRef<HTMLButtonElement>(null);
   const doneRef = useRef<HTMLDivElement>(null);
   const [placement, setPlacement] = useState<SkillPlacement>(() => defaultPlacementFor(initialArch));
-  const placementModel = useMemo(() => skillPlacementModel(skillTargetFor(architecture)), [architecture]);
+  const placementModel = useMemo(() => skillPlacementModel(skillTargetFor(architecture), t, effective), [architecture, effective, t]);
 
   const discardPreview = useCallback(async (id: string, reportError = false) => {
     const version = flowVersion.current;

@@ -1,33 +1,27 @@
 import { useEffect, useRef } from "react";
 
 import type { SensitiveModelStatus } from "../common/ipc";
+import { useI18n } from "./i18n";
 
-/** Human-readable status for the on-device protection model shown in the sheet. */
-function protectionModelNote(status: SensitiveModelStatus | null): string {
-  if (!status) return "Checking…";
+function protectionModelNote(
+  t: (key: "loading" | "modelReady" | "modelSettingUp" | "modelSetupFailed" | "modelMissing") => string,
+  status: SensitiveModelStatus | null,
+): string {
+  if (!status) return t("loading");
   switch (status.ocr) {
     case "ready":
-      return "On-device model ready";
+      return t("modelReady");
     case "downloading":
       return status.progress == null
-        ? "Setting up the on-device model…"
-        : `Setting up the on-device model… ${Math.round(status.progress)}%`;
+        ? t("modelSettingUp")
+        : `${t("modelSettingUp")} ${Math.round(status.progress)}%`;
     case "error":
-      return "Couldn't set up the model";
+      return t("modelSetupFailed");
     default:
-      return "On-device model not set up yet";
+      return t("modelMissing");
   }
 }
 
-/**
- * Plain-language disclosure of what the recorder captures, where it is stored,
- * and what leaves the machine on analysis. Every claim here is grounded in the
- * actual collectors and describer behavior, so it must be kept in sync with them.
- *
- * Also home to the Advanced-protection opt-out toggle: protection is on by default,
- * and this sheet is where the user reviews what it does and turns it off if they
- * don't want on-device screen-image scanning.
- */
 export function WhatsRecorded({
   onClose,
   onReviewed,
@@ -43,6 +37,7 @@ export function WhatsRecorded({
   onToggleAdvanced: () => void;
   onDownload: () => void;
 }) {
+  const { t } = useI18n();
   const sheetRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -56,8 +51,7 @@ export function WhatsRecorded({
 
   const advancedOn = sensitive?.enabled ?? true;
   const showModelError = advancedOn && sensitive?.ocr === "error";
-  const showDownloadAction =
-    advancedOn && (sensitive?.ocr === "error" || sensitive?.ocr === "missing");
+  const showDownloadAction = advancedOn && (sensitive?.ocr === "error" || sensitive?.ocr === "missing");
 
   return (
     <div className="sheet-backdrop" onClick={onClose}>
@@ -88,111 +82,67 @@ export function WhatsRecorded({
               />
             </svg>
           </span>
-          <h2 id="whats-recorded-title">What's recorded</h2>
+          <h2 id="whats-recorded-title">{t("whatsRecorded")}</h2>
         </header>
 
-        <p className="sheet-lead">
-          This tool records your screen and activity so it can turn what you did into a reusable
-          skill. Here is exactly what it captures and what leaves your computer.
-        </p>
+        <p className="sheet-lead">{t("privacyLead")}</p>
 
         <section className="sheet-block">
-          <h3>While you're recording</h3>
-          <p className="sheet-note">Only between Start and Stop.</p>
+          <h3>{t("whileRecording")}</h3>
+          <p className="sheet-note">{t("onlyBetweenStartStop")}</p>
           <ul>
-            <li>Which apps you switch to, and their window and document titles.</li>
-            <li>Web addresses of the pages you open.</li>
-            <li>A short preview of text you copy, up to 120 characters.</li>
-            <li>A silent video of the screen you select, at a low frame rate.</li>
-            <li>
-              If you open the recorded terminal from the floating bar: its commands, working
-              folders, exit status, timing, and complete terminal output.
-            </li>
+            <li>{t("captureApps")}</li>
+            <li>{t("captureUrls")}</li>
+            <li>{t("captureClipboard")}</li>
+            <li>{t("captureVideo")}</li>
+            <li>{t("captureRecordedTerminal")}</li>
           </ul>
-          <p className="sheet-caution">
-            Do not type, paste, display, copy, or narrate passwords, access tokens, API keys,
-            credentials, secrets, or other sensitive or confidential information. Anything visible
-            on screen can appear in the recording, and copied text previews and narration are
-            captured too.
-          </p>
+          <p className="sheet-caution">{t("sensitiveCaptureWarning")}</p>
         </section>
 
         <section className="sheet-block">
-          <h3>Recorded terminal (only if you open it)</h3>
+          <h3>{t("recordedTerminalIfOpened")}</h3>
           <ul>
-            <li>Only the terminal opened from the floating recording bar is captured.</li>
-            <li>
-              Its full output stays with this recording and has no app-imposed size limit, so
-              long-running or noisy commands can make the saved recording much larger.
-            </li>
-            <li>
-              Skill Recorder does not edit shell profiles, install global hooks, watch existing
-              terminals, or keep recording commands after this recording ends.
-            </li>
+            <li>{t("onlyTerminalOpenedFromBar")}</li>
+            <li>{t("fullTerminalOutputStored")}</li>
+            <li>{t("recorderDoesNotWatchTerminals")}</li>
           </ul>
         </section>
 
         <section className="sheet-block">
-          <h3>Voice narration (only if you turn it on)</h3>
-          <p className="sheet-note">
-            Off by default. Choose the initial state and microphone with Narrate, then use the
-            floating recording bar.
-          </p>
+          <h3>{t("voiceNarrationIfOn")}</h3>
+          <p className="sheet-note">{t("narrationOffDefault")}</p>
           <ul>
-            <li>
-              Enabling Narrate briefly opens and releases the microphone so the app can request
-              permission and show the available inputs. No audio is saved during this check.
-            </li>
-            <li>Your microphone audio is saved only while it is on and a recording is running.</li>
-            <li>
-              Turning the microphone off ends that voice segment and releases the device. Turning it
-              on again, or switching inputs, starts a new segment linked to the same recording
-              timeline.
-            </li>
-            <li>
-              The recording can be turned into text on this computer using an on-device model. The
-              transcript stays in the language you select from Whisper's 99 supported choices. The
-              first transcription needs a one-time ~252 MB download that you choose when to start.
-            </li>
-            <li>Leave Narrate and the recording-bar microphone off and no microphone is opened.</li>
+            <li>{t("narrationPermissionDetail")}</li>
+            <li>{t("narrationSavedDetail")}</li>
+            <li>{t("narrationSegmentsDetail")}</li>
+            <li>{t("narrationModelDetail")}</li>
+            <li>{t("narrationNoMicDetail")}</li>
           </ul>
         </section>
 
         <section className="sheet-block">
-          <h3>Where it's stored</h3>
+          <h3>{t("whereStored")}</h3>
           <ul>
-            <li>Everything is saved on this computer, in the app's own session folder.</li>
-            <li>Recordings stay until you delete them. You can delete any recording from Sessions.</li>
+            <li>{t("localStorageDetail")}</li>
+            <li>{t("retentionDetail")}</li>
           </ul>
         </section>
 
         <section className="sheet-block">
-          <h3>What's sent for analysis</h3>
+          <h3>{t("whatsSentForAnalysis")}</h3>
           <ul>
-            <li>Nothing leaves your computer while you record.</li>
-            <li>
-              When you choose Analyze, the event timeline (window and document titles, URLs, and
-              clipboard previews and recorded-terminal commands), plus screen images, narration
-              text, and only the bounded terminal-output excerpts needed for analysis, are sent
-              to GitHub&apos;s cloud service and processed by GitHub Copilot.
-            </li>
-            <li>
-              By default, before anything is sent, this computer hides sensitive details like
-              passwords, keys, emails, and card or ID numbers from that text and from your screen
-              images. You can turn this off below.
-            </li>
+            <li>{t("nothingLeavesWhileRecording")}</li>
+            <li>{t("analysisSentDetail")}</li>
+            <li>{t("defaultProtectionDetail")}</li>
           </ul>
         </section>
 
         <section className={`sheet-block sheet-advp ${advancedOn ? "on" : ""}`}>
           <div className="sheet-advp-head">
             <div className="sheet-advp-copy">
-              <h3>Advanced protection</h3>
-              <p className="sheet-note">
-                On by default. Before your recording is analyzed, it checks the text and your screen
-                images on this computer and hides sensitive details. Turn it off to send everything
-                as recorded.
-              </p>
+              <h3>{t("advancedProtection")}</h3>
+              <p className="sheet-note">{t("protectionDescription")}</p>
             </div>
             <button
               type="button"
@@ -200,7 +150,7 @@ export function WhatsRecorded({
               role="switch"
               aria-checked={advancedOn}
               aria-busy={advancedPending}
-              aria-label="Advanced protection"
+              aria-label={t("advancedProtection")}
               disabled={advancedPending}
               onClick={onToggleAdvanced}
             >
@@ -212,44 +162,36 @@ export function WhatsRecorded({
           {advancedOn && (
             <>
               <ul>
-                <li>
-                  It hides sensitive details like                   passwords, keys, emails, and card or ID numbers, both in the text that is sent
-                  (including narration and terminal output) and in your screen images.
-                </li>
-                <li>
-                  Turning it off sends your recording as recorded. That can make the analysis more
-                  accurate, but nothing is hidden, so only do it when the recording has nothing
-                  sensitive.
-                </li>
-                <li>It all runs on this computer.</li>
+                <li>{t("protectionHides")}</li>
+                <li>{t("protectionOffRisk")}</li>
+                <li>{t("runsLocally")}</li>
               </ul>
               <div className={`sheet-advp-status ${showModelError ? "is-error" : ""}`}>
-                <span className="sheet-advp-model">{protectionModelNote(sensitive)}</span>
+                <span className="sheet-advp-model">
+                  {protectionModelNote(t as never, sensitive)}
+                </span>
                 {showDownloadAction && (
                   <button type="button" className="sheet-advp-download" onClick={onDownload}>
-                    {sensitive?.ocr === "error" ? "Retry" : "Set up now"}
+                    {sensitive?.ocr === "error" ? t("retry") : t("setupNow")}
                   </button>
                 )}
               </div>
-              <p className="sheet-caution">
-                No method is 100% effective. It can miss details or mask the wrong ones. Treat it as
-                a safety net, not a guarantee, and still avoid capturing anything secret.
-              </p>
+              <p className="sheet-caution">{t("protectionLimit")}</p>
             </>
           )}
         </section>
 
         <section className="sheet-block">
-          <h3>What it never does</h3>
+          <h3>{t("whatItNeverDoes")}</h3>
           <ul>
-            <li>It does not log your keystrokes.</li>
-            <li>It does not capture commands from Terminal, PowerShell, or other terminal apps.</li>
-            <li>It only captures while a recording is running. Nothing runs in the background.</li>
+            <li>{t("neverKeystrokes")}</li>
+            <li>{t("neverTerminalApps")}</li>
+            <li>{t("captureOnlyActive")}</li>
           </ul>
         </section>
 
         <button className="sheet-close" onClick={onReviewed}>
-          Got it
+          {t("gotIt")}
         </button>
       </div>
     </div>

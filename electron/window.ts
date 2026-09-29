@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import { BrowserWindow, screen } from "electron";
 
+import { message, type UiLocale } from "../common/locales";
 import {
   RECORDING_CONTROLS_SIZE,
   clampRecordingControlsBounds,
@@ -46,14 +47,14 @@ function registerDevelopmentDevToolsShortcut(win: BrowserWindow): void {
   });
 }
 
-export function createRecorderWindow(): BrowserWindow {
+export function createRecorderWindow(locale: UiLocale = "en"): BrowserWindow {
   const win = new BrowserWindow({
     width: RECORDER.width,
     height: RECORDER.height,
     resizable: false,
     maximizable: false,
     fullscreenable: false,
-    title: "Skill Recorder",
+    title: message(locale, "appName"),
     icon: windowIcon(),
     backgroundColor: "#faf8f5",
     webPreferences: {
@@ -69,7 +70,7 @@ export function createRecorderWindow(): BrowserWindow {
 }
 
 /** Always-on-top recording transport shown without stealing focus from the task. */
-export function createRecordingControlsWindow(): BrowserWindow {
+export function createRecordingControlsWindow(locale: UiLocale = "en"): BrowserWindow {
   let bounds: Bounds;
   if (recordingControlsAnchor) {
     const preferred = {
@@ -97,7 +98,7 @@ export function createRecordingControlsWindow(): BrowserWindow {
     fullscreenable: false,
     closable: false,
     skipTaskbar: true,
-    title: "Skill Recorder: Recording controls",
+    title: `${message(locale, "appName")}: ${message(locale, "recordingControls")}`,
     webPreferences: {
       preload: path.join(dirname, "preload.cjs"),
       contextIsolation: true,
@@ -124,7 +125,7 @@ export function createRecordingControlsWindow(): BrowserWindow {
 }
 
 /** Resizable app-owned terminal; the PTY remains in the main process. */
-export function createTerminalWindow(): BrowserWindow {
+export function createTerminalWindow(locale: UiLocale = "en"): BrowserWindow {
   const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
   const width = Math.min(960, Math.max(640, display.workArea.width - 80));
   const height = Math.min(640, Math.max(420, display.workArea.height - 100));
@@ -134,7 +135,7 @@ export function createTerminalWindow(): BrowserWindow {
     minWidth: 560,
     minHeight: 360,
     show: false,
-    title: "Skill Recorder: Recorded terminal",
+    title: `${message(locale, "appName")}: ${message(locale, "recordedTerminal")}`,
     icon: windowIcon(),
     backgroundColor: "#211f1e",
     webPreferences: {
@@ -210,14 +211,14 @@ function computeDock(recorder: BrowserWindow): { recorder: { x: number; y: numbe
   };
 }
 
-export function createLibraryWindow(recorder: BrowserWindow): BrowserWindow {
+export function createLibraryWindow(recorder: BrowserWindow, locale: UiLocale = "en"): BrowserWindow {
   const layout = computeDock(recorder);
   const win = new BrowserWindow({
     ...layout.library,
     minWidth: LIBRARY.floorWidth,
     minHeight: 480,
     show: false,
-    title: "Skill Recorder: Sessions",
+    title: `${message(locale, "appName")}: ${message(locale, "sessions")}`,
     icon: windowIcon(),
     backgroundColor: "#faf8f5",
     webPreferences: {

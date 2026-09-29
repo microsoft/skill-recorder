@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
 
+import { useI18n } from "./i18n";
+
 export function RecordingPrivacyWarning({
   starting,
   onStart,
@@ -11,6 +13,7 @@ export function RecordingPrivacyWarning({
   onReview: () => void;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
   const startRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -50,29 +53,22 @@ export function RecordingPrivacyWarning({
               />
             </svg>
           </span>
-          <h2 id="recording-warning-title">Before you record</h2>
+          <h2 id="recording-warning-title">{t("beforeYouRecord")}</h2>
         </header>
 
         <p id="recording-warning-copy" className="recording-warning-copy">
-          Keep passwords, access tokens, API keys, and other sensitive or confidential
-          information off screen and out of narration.
+          {t("beforeRecordWarning")}
         </p>
         <p id="recording-warning-detail" className="recording-warning-detail">
-          For complete transparency, review exactly what&apos;s captured and what may later be
-          sent to GitHub Copilot for cloud analysis.
+          {t("transparencyReview")}
         </p>
 
         <div className="recording-warning-actions">
           <button className="secondary" onClick={onReview} disabled={starting}>
-            See exactly what&apos;s captured
+            {t("seeExactlyWhatsCaptured")}
           </button>
-          <button
-            ref={startRef}
-            className="record-cta"
-            onClick={onStart}
-            disabled={starting}
-          >
-            {starting ? "Starting…" : "Start recording"}
+          <button ref={startRef} className="record-cta" onClick={onStart} disabled={starting}>
+            {starting ? t("starting") : t("startRecording")}
           </button>
         </div>
       </div>

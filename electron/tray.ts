@@ -1,7 +1,14 @@
 import { Menu, Tray, nativeImage } from "electron";
 
+import { message, type UiLocale } from "../common/locales";
 import { trayIcon } from "./icons";
 import type { RecorderController } from "./recorder/controller";
+
+export interface AppTrayHandle {
+  tray: Tray;
+  rebuild(): void;
+  destroy(): void;
+}
 
 /** Last-resort tray glyph drawn in code, used only if the icon assets are missing. */
 function fallbackTrayIcon(): Electron.NativeImage {
@@ -14,10 +21,10 @@ function fallbackTrayIcon(): Electron.NativeImage {
     const x = i % size;
     const y = Math.floor(i / size);
     const inside = (x - c) ** 2 + (y - c) ** 2 <= r * r;
-    buf[o] = 42; // B
-    buf[o + 1] = 54; // G
-    buf[o + 2] = 237; // R
-    buf[o + 3] = inside ? 255 : 0; // A
+    buf[o] = 42;
+    buf[o + 1] = 54;
+    buf[o + 2] = 237;
+    buf[o + 3] = inside ? 255 : 0;
   }
   return nativeImage.createFromBitmap(buf, { width: size, height: size });
 }
@@ -28,21 +35,24 @@ export function createTray(
   stopRecording: () => Promise<unknown>,
   showRecorderWindow: () => void,
   showRecordingControls: () => void,
-): Tray {
+  locale: UiLocale,
+): AppTrayHandle {
   const tray = new Tray(trayIcon() ?? fallbackTrayIcon());
-  tray.setToolTip("Skill Recorder");
 
   const rebuild = () => {
     const recording = recorder.state === "recording";
+    tray.setToolTip(message(locale, "appName"));
     tray.setContextMenu(
       Menu.buildFromTemplate([
         {
-          label: recording ? "Stop recording" : "Start recording",
+          label: recording ? message(locale, "stopRecording") : message(locale, "startRecording"),
           click: () => void (recording ? stopRecording() : startRecording()),
         },
         { type: "separator" },
         {
-          label: recording ? "Show recording controls" : "Show window",
+          label: recording
+            ? message(locale, "showRecordingControls")
+            : message(locale, "showWindow"),
           click: () => {
             if (recording) {
               showRecordingControls();
@@ -51,12 +61,19 @@ export function createTray(
             showRecorderWindow();
           },
         },
-        { label: "Quit", role: "quit" },
+        { label: message(locale, "quit"), role: "quit" },
       ]),
     );
   };
 
+  const offStatus = recorder.onStatusChanged(rebuild);
   rebuild();
-  recorder.onStatusChanged(rebuild);
-  return tray;
+  return {
+    tray,
+    rebuild,
+    destroy() {
+      offStatus();
+      tray.destroy();
+    },
+  };
 }

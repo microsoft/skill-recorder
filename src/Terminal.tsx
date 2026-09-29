@@ -4,13 +4,11 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal as Xterm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 
-import type {
-  SupportedShellId,
-  TerminalShellDescriptor,
-  TerminalStatus,
-} from "../common/terminal";
+import type { SupportedShellId, TerminalShellDescriptor, TerminalStatus } from "../common/terminal";
+import { useI18n } from "./i18n";
 
 export function Terminal() {
+  const { t } = useI18n();
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Xterm | null>(null);
   const [status, setStatus] = useState<TerminalStatus | null>(null);
@@ -94,20 +92,19 @@ export function Terminal() {
     setSwitching(false);
   };
 
-  const stateLabel =
-    switching
-      ? "Switching shell"
-      : status?.state === "running"
-      ? "Command running"
+  const stateLabel = switching
+    ? t("switchingShell")
+    : status?.state === "running"
+      ? t("commandRunning")
       : status?.state === "idle"
-        ? "Ready"
+        ? t("ready")
         : status?.state === "starting"
-          ? "Starting"
+          ? t("starting")
           : status?.state === "error"
-            ? "Capture error"
+            ? t("captureError")
             : status?.state === "exited"
-              ? "Shell exited"
-              : "Recorded terminal";
+              ? t("shellExited")
+              : t("recordedTerminal");
 
   return (
     <main className="terminal-page">
@@ -116,17 +113,15 @@ export function Terminal() {
           <span className={`terminal-state-dot ${status?.state ?? "closed"}`} aria-hidden />
           <span>
             <strong>{stateLabel}</strong>
-            <small>Output is saved only with this recording</small>
+            <small>{t("outputSavedOnlyWithRecording")}</small>
           </span>
         </div>
         <label className="terminal-shell-picker">
-          <span>Shell</span>
+          <span>{t("shell")}</span>
           <select
             value={status?.shell?.id ?? ""}
             disabled={switching || status?.busy || shells.length === 0}
-            onChange={(event) =>
-              void switchShell(event.target.value as SupportedShellId)
-            }
+            onChange={(event) => void switchShell(event.target.value as SupportedShellId)}
           >
             {shells.map((shell) => (
               <option key={shell.id} value={shell.id}>
@@ -135,12 +130,8 @@ export function Terminal() {
             ))}
           </select>
         </label>
-        <button
-          type="button"
-          className="terminal-hide"
-          onClick={() => void window.skillRecorder.hideTerminal()}
-        >
-          Hide
+        <button type="button" className="terminal-hide" onClick={() => void window.skillRecorder.hideTerminal()}>
+          {t("hide")}
         </button>
       </header>
       {(actionError || status?.error) && (
@@ -148,7 +139,7 @@ export function Terminal() {
           {actionError ?? status?.error}
         </div>
       )}
-      <div ref={hostRef} className="terminal-viewport" aria-label="Recorded terminal" />
+      <div ref={hostRef} className="terminal-viewport" aria-label={t("recordedTerminalAria")} />
     </main>
   );
 }

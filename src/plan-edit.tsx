@@ -18,6 +18,7 @@ import {
 import type { PlanStep } from "../common/skill";
 import { planToolLabel } from "../common/plan-tools";
 import { tokenize, type Value } from "../common/values";
+import { useI18n } from "./i18n";
 
 /* --- shared array helpers (pure) ----------------------------------------- */
 
@@ -61,6 +62,7 @@ export function EditableText({
   hideEmpty?: boolean;
   ariaLabel?: string;
 }) {
+  const { t } = useI18n();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const ref = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
@@ -138,7 +140,7 @@ export function EditableText({
       tabIndex={0}
       role="textbox"
       aria-label={ariaLabel ?? placeholder}
-      title="Click to edit"
+      title={t("clickToEdit")}
       onClick={begin}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -166,6 +168,7 @@ function RowControls({
   onMove?: (dir: -1 | 1) => void;
   onRemove: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="row-controls">
       {onMove && (
@@ -173,7 +176,7 @@ function RowControls({
           <button
             type="button"
             className="tile-btn"
-            title="Move up"
+            title={t("moveUp")}
             disabled={index === 0}
             onClick={() => onMove(-1)}
           >
@@ -182,7 +185,7 @@ function RowControls({
           <button
             type="button"
             className="tile-btn"
-            title="Move down"
+            title={t("moveDown")}
             disabled={index === count - 1}
             onClick={() => onMove(1)}
           >
@@ -190,7 +193,7 @@ function RowControls({
           </button>
         </>
       )}
-      <button type="button" className="tile-btn tile-btn-del" title="Remove" onClick={onRemove}>
+      <button type="button" className="tile-btn tile-btn-del" title={t("remove")} onClick={onRemove}>
         ×
       </button>
     </div>
@@ -240,12 +243,13 @@ function ValuePill({
   onClose: () => void;
   onChange: (next: Value) => void;
 }) {
+  const { t } = useI18n();
   const btnRef = useRef<HTMLButtonElement | null>(null);
 
   // Unknown token: no value to edit — flag it so the user (or agent) fixes it before export.
   if (!value) {
     return (
-      <span className="val-pill val-pill-unresolved" title="No value is defined for this token">
+      <span className="val-pill val-pill-unresolved" title={t("noValueForToken")}>
         {`{{${token}}}`}
       </span>
     );
@@ -258,7 +262,7 @@ function ValuePill({
         ref={btnRef}
         type="button"
         className={`val-pill${value.value.trim() ? "" : " val-pill-empty"}${open ? " val-pill-active" : ""}`}
-        title={`${label}${value.value ? `: ${value.value}` : ""} — click to edit`}
+        title={value.value ? `${label}: ${value.value} — ${t("clickToEdit").toLowerCase()}` : `${label} — ${t("clickToEdit").toLowerCase()}`}
         onClick={(e) => {
           e.stopPropagation();
           onOpen();
@@ -298,6 +302,7 @@ function ValuePopover({
   onCommit: (next: string) => void;
   onCancel: () => void;
 }) {
+  const { t } = useI18n();
   const cardRef = useRef<HTMLDivElement | null>(null);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   const [draft, setDraft] = useState(value);
@@ -378,7 +383,7 @@ function ValuePopover({
         rows={1}
         value={draft}
         spellCheck={false}
-        aria-label={`${label} value`}
+        aria-label={t("valueField", { label })}
         onChange={(e) => {
           setDraft(e.target.value);
           autoGrowTextarea(e.target);
@@ -393,7 +398,7 @@ function ValuePopover({
           }
         }}
       />
-      <div className="val-pop-hint">Esc to cancel · ⏎ to save</div>
+      <div className="val-pop-hint">{t("escToCancel")}</div>
     </div>,
     document.body,
   );
@@ -466,6 +471,7 @@ function TokenText({
   placeholder: string;
   ariaLabel: string;
 }) {
+  const { t } = useI18n();
   const [editing, setEditing] = useState(false);
   const editorRef = useRef<HTMLDivElement | null>(null);
   const cancelRef = useRef(false);
@@ -560,7 +566,7 @@ function TokenText({
       tabIndex={0}
       role="textbox"
       aria-label={ariaLabel}
-      title="Click to edit"
+      title={t("clickToEdit")}
       onClick={(e) => {
         // A click on a pill edits its value (via popover), not the surrounding prose.
         const t = e.target as HTMLElement;
@@ -608,6 +614,7 @@ export function SkillStepTiles({
   values: Value[];
   onChangeValues: (next: Value[]) => void;
 }) {
+  const { t } = useI18n();
   const patch = (i: number, part: Partial<PlanStep>) =>
     onChange(replaceAt(steps, i, { ...steps[i], ...part }));
 
@@ -620,8 +627,8 @@ export function SkillStepTiles({
             <EditableText
               className="ed-strong"
               value={s.title}
-              placeholder="Step title"
-              ariaLabel="Step title"
+              placeholder={t("stepTitle")}
+              ariaLabel={t("stepTitle")}
               onChange={(v) => patch(i, { title: v })}
             />
             <RowControls
@@ -636,13 +643,13 @@ export function SkillStepTiles({
             onChangeText={(v) => patch(i, { text: v })}
             values={values}
             onChangeValues={onChangeValues}
-            placeholder="What happens in this step?"
-            ariaLabel="Step description"
+            placeholder={t("whatHappensInStep")}
+            ariaLabel={t("stepDescription")}
           />
           {s.tools.length > 0 && (
             <div className="tile-foot">
               {s.tools.map((tool) => (
-                <span className="step-tool" title={`Runtime tool: ${tool}`} key={tool}>
+                <span className="step-tool" title={t("runtimeTool", { tool })} key={tool}>
                   {planToolLabel(tool)}
                 </span>
               ))}
@@ -651,7 +658,7 @@ export function SkillStepTiles({
         </div>
       ))}
       <AddTile
-        label="Add step"
+        label={t("addStep")}
         onAdd={() => onChange([...steps, { kind: "action", title: "", text: "", tools: [] }])}
       />
     </div>
@@ -671,6 +678,7 @@ export function AutomationStepTiles({
   values: Value[];
   onChangeValues: (next: Value[]) => void;
 }) {
+  const { t } = useI18n();
   const patch = (i: number, part: Partial<AutomationStepDraft>) =>
     onChange(replaceAt(steps, i, { ...steps[i], ...part }));
 
@@ -683,8 +691,8 @@ export function AutomationStepTiles({
             <EditableText
               className="ed-strong"
               value={s.label}
-              placeholder="Step label"
-              ariaLabel="Step label"
+              placeholder={t("stepLabel")}
+              ariaLabel={t("stepLabel")}
               onChange={(v) => patch(i, { label: v })}
             />
             <RowControls
@@ -699,12 +707,12 @@ export function AutomationStepTiles({
             onChangeText={(v) => patch(i, { prompt: v })}
             values={values}
             onChangeValues={onChangeValues}
-            placeholder="The instruction the agent runs for this step"
-            ariaLabel="Step instruction"
+            placeholder={t("agentStepInstruction")}
+            ariaLabel={t("agentStepInstruction")}
           />
         </div>
       ))}
-      <AddTile label="Add step" onAdd={() => onChange([...steps, { label: "", prompt: "" }])} />
+      <AddTile label={t("addStep")} onAdd={() => onChange([...steps, { label: "", prompt: "" }])} />
     </div>
   );
 }
@@ -718,6 +726,7 @@ export function AnalysisStepTiles({
   steps: AnalysisStep[];
   onChange: (next: AnalysisStep[]) => void;
 }) {
+  const { t } = useI18n();
   const patch = (i: number, part: Partial<AnalysisStep>) =>
     onChange(replaceAt(steps, i, { ...steps[i], ...part }));
 
@@ -730,8 +739,8 @@ export function AnalysisStepTiles({
             <EditableText
               className="ed-strong"
               value={s.title}
-              placeholder="What you did"
-              ariaLabel="Step title"
+              placeholder={t("whatYouDidPlaceholder")}
+              ariaLabel={t("stepTitle")}
               onChange={(v) => patch(i, { title: v })}
             />
             <RowControls
@@ -746,15 +755,15 @@ export function AnalysisStepTiles({
             multiline
             className="ed-detail"
             value={s.detail}
-            placeholder="A little more detail"
-            ariaLabel="Step detail"
+            placeholder={t("littleMoreDetail")}
+            ariaLabel={t("stepDescription")}
             hideEmpty
             onChange={(v) => patch(i, { detail: v })}
           />
         </div>
       ))}
       <AddTile
-        label="Add step"
+        label={t("addStep")}
         onAdd={() =>
           onChange([
             ...steps,
@@ -768,7 +777,6 @@ export function AnalysisStepTiles({
 
 /* --- Automation schedule editor (read-first: sentence → controls) --------- */
 
-const DAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 const INTERVAL_CHOICES = [15, 30, 60, 120, 180, 240, 360, 720];
 
 function fmtTime(t: TimeOfDay): string {
@@ -794,6 +802,7 @@ export function ScheduleEditor({
   schedule: AutomationSchedule;
   onChange: (next: AutomationSchedule) => void;
 }) {
+  const { effective, t } = useI18n();
   const [editing, setEditing] = useState(false);
 
   if (!editing) {
@@ -801,7 +810,7 @@ export function ScheduleEditor({
       <div className="sched-read">
         <span className="sched-when">{describeSchedule(schedule)}</span>
         <button type="button" className="linky" onClick={() => setEditing(true)}>
-          Edit
+          {t("edit")}
         </button>
       </div>
     );
@@ -830,9 +839,9 @@ export function ScheduleEditor({
           value={schedule.kind}
           onChange={(e) => changeKind(e.target.value as AutomationSchedule["kind"])}
         >
-          <option value="single">Once a day</option>
-          <option value="interval">Every…</option>
-          <option value="multi">A few times a day</option>
+          <option value="single">{t("onceADay")}</option>
+          <option value="interval">{t("everyEllipsis")}</option>
+          <option value="multi">{t("fewTimesADay")}</option>
         </select>
 
         {schedule.kind === "single" && (
@@ -855,11 +864,11 @@ export function ScheduleEditor({
             >
               {INTERVAL_CHOICES.map((m) => (
                 <option key={m} value={m}>
-                  {m < 60 ? `${m} min` : `${m / 60} h`}
+                  {effective === "zh-CN" ? (m < 60 ? `${m} 分钟` : `${m / 60} 小时`) : (m < 60 ? `${m} min` : `${m / 60} h`)}
                 </option>
               ))}
             </select>
-            <span className="sched-lbl">from</span>
+            <span className="sched-lbl">{t("from")}</span>
             <input
               type="time"
               className="tile-input tile-time"
@@ -870,18 +879,18 @@ export function ScheduleEditor({
         )}
 
         <button type="button" className="linky sched-done" onClick={() => setEditing(false)}>
-          Done
+          {t("done")}
         </button>
       </div>
 
       {schedule.kind === "multi" && (
         <div className="sched-times">
-          {schedule.times.map((t, i) => (
+          {schedule.times.map((time, i) => (
             <div key={i} className="sched-time-row">
               <input
                 type="time"
                 className="tile-input tile-time"
-                value={fmtTime(t)}
+                value={fmtTime(time)}
                 onChange={(e) =>
                   onChange({ ...schedule, times: replaceAt(schedule.times, i, parseTime(e.target.value)), naturalLanguage: "" })
                 }
@@ -889,7 +898,7 @@ export function ScheduleEditor({
               <button
                 type="button"
                 className="tile-btn tile-btn-del"
-                title="Remove time"
+                title={t("removeTime")}
                 disabled={schedule.times.length <= 1}
                 onClick={() => onChange({ ...schedule, times: removeAt(schedule.times, i), naturalLanguage: "" })}
               >
@@ -910,19 +919,19 @@ export function ScheduleEditor({
       )}
 
       <div className="sched-days">
-        <span className="sched-lbl">On</span>
-        {DAY_LABELS.map((lbl, d) => (
+        <span className="sched-lbl">{t("on")}</span>
+        {(effective === "zh-CN" ? ["日", "一", "二", "三", "四", "五", "六"] : ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]).map((lbl, d) => (
           <button
             key={d}
             type="button"
             className={`day-chip${days.length === 0 || days.includes(d) ? " on" : ""}`}
-            title={days.length === 0 ? "Every day" : undefined}
+            title={days.length === 0 ? t("everyDay") : undefined}
             onClick={() => toggleDay(d)}
           >
             {lbl}
           </button>
         ))}
-        {days.length === 0 && <span className="sched-lbl sched-every">every day</span>}
+        {days.length === 0 && <span className="sched-lbl sched-every">{t("everyDay")}</span>}
       </div>
     </div>
   );

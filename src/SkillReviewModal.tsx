@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 
 import type { SkillPlacement, SkillPreview } from "../common/ipc";
 import type { SkillPlacementModel } from "./skill-placement";
+import { useI18n } from "./i18n";
 
 export function SkillReviewModal({
   preview,
@@ -29,6 +30,7 @@ export function SkillReviewModal({
   onClose: () => void;
   restoreFocus: () => void;
 }) {
+  const { t } = useI18n();
   const dialog = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const descriptionId = useId();
@@ -84,9 +86,12 @@ export function SkillReviewModal({
   }, [restoreFocus]);
 
   return createPortal(
-    <div className="sheet-backdrop" onClick={(event) => {
-      if (event.target === event.currentTarget) onClose();
-    }}>
+    <div
+      className="sheet-backdrop"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <div
         ref={dialog}
         className="sheet skill-review-sheet"
@@ -97,19 +102,27 @@ export function SkillReviewModal({
         tabIndex={-1}
       >
         <div className="sheet-head">
-          <h2 id={titleId}>Review SKILL.md</h2>
-          <button className="ghost" onClick={onClose}>Close</button>
+          <h2 id={titleId}>{t("reviewSkillMd")}</h2>
+          <button className="ghost" onClick={onClose}>
+            {t("close")}
+          </button>
         </div>
         <p className="sheet-lead" id={descriptionId}>
           Read-only file preview, including frontmatter. Nothing is installed or exported until you choose an action below.
           Closing this window keeps the preview; editing the plan discards it.
         </p>
-        {error && <p className="sheet-caution" role="alert">{error}</p>}
+        {error && (
+          <p className="sheet-caution" role="alert">
+            {error}
+          </p>
+        )}
         {busy && (
           <div className="status-line" role="status">
             <span className="spinner" aria-hidden="true" />
-            <span className="status-text">{statusLine || "Working…"}</span>
-            <button className="linky status-cancel" onClick={onCancel} disabled={stopping}>Cancel</button>
+            <span className="status-text">{statusLine || t("working")}</span>
+            <button className="linky status-cancel" onClick={onCancel} disabled={stopping}>
+              {t("cancelAction")}
+            </button>
           </div>
         )}
         {preview && (
@@ -118,7 +131,9 @@ export function SkillReviewModal({
           </pre>
         )}
         {!preview && !busy && (
-          <button className="ghost" onClick={onPrepare}>Prepare preview</button>
+          <button className="ghost" onClick={onPrepare}>
+            Prepare preview
+          </button>
         )}
         <div className="sheet-actions skill-review-actions">
           {placementModel.actions.map((action) => (

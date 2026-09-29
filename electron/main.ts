@@ -10,6 +10,8 @@ import {
 
 import { FULL_CAPTURE } from "../common/config";
 import { IPC, type RecorderStatus, type StartResult } from "../common/ipc";
+import { isUiLocale, message, resolveUiLocale, type UiLanguageState } from "../common/locales";
+import { loadUiLanguage, saveUiLanguage } from "../common/ui-language";
 import type {
   SupportedShellId,
   TerminalActionResult,
@@ -28,7 +30,7 @@ import { RecordingPrivacySession } from "./recording-privacy";
 import { deleteSession } from "./sessions";
 import { SkillBuilder } from "./skillbuilder/builder";
 import { AutomationBuilder } from "./automationbuilder/builder";
-import { createTray } from "./tray";
+import { createTray, type AppTrayHandle } from "./tray";
 import { dockIcon } from "./icons";
 import { AudioRecorder } from "./audio/recorder";
 import { TerminalSession } from "./terminal/session";
@@ -66,6 +68,8 @@ let controlsExpanded = false;
 let quitReady = false;
 let quitTask: Promise<void> | null = null;
 let recordingStartPending = false;
+let uiLanguage: UiLanguageState = { preference: null, effective: "en" };
+let appTray: AppTrayHandle | null = null;
 const recordingPrivacy = new RecordingPrivacySession();
 const narration = new NarrationManager((status) =>
   broadcast(IPC.narrationStatusChanged, status),
@@ -163,7 +167,7 @@ function openLibrary(): void {
     return;
   }
   recorderHome = recorderWindow.getBounds();
-  libraryWindow = createLibraryWindow(recorderWindow);
+  libraryWindow = createLibraryWindow(recorderWindow, uiLanguage.effective);
   libraryWindow.on("closed", () => {
     libraryWindow = null;
     // Return the recorder to where it sat before it made room for the library.
@@ -183,7 +187,7 @@ function ensureRecordingControlsWindow(): BrowserWindow {
     return recordingControlsWindow;
   }
   controlsExpanded = false;
-  recordingControlsWindow = createRecordingControlsWindow();
+  recordingControlsWindow = createRecordingControlsWindow(uiLanguage.effective);
   recordingControlsWindow.on("closed", () => {
     recordingControlsWindow = null;
     controlsExpanded = false;
@@ -194,7 +198,7 @@ function ensureRecordingControlsWindow(): BrowserWindow {
 function ensureTerminalWindow(): BrowserWindow {
   if (terminalWindow && !terminalWindow.isDestroyed()) return terminalWindow;
   terminalWindowClosing = false;
-  const win = createTerminalWindow();
+  const win = createTerminalWindow(uiLanguage.effective);
   terminalWindow = win;
   win.on("close", (event) => {
     if (!terminalWindowClosing && recorder.state === "recording") {
@@ -286,7 +290,7 @@ function showRecordingControls(): void {
 
 function showRecorderWindow(): BrowserWindow {
   if (!recorderWindow || recorderWindow.isDestroyed()) {
-    recorderWindow = createRecorderWindow();
+    recorderWindow = createRecorderWindow(uiLanguage.effective);
   }
   recorderWindow.show();
   recorderWindow.focus();
@@ -355,9 +359,51 @@ function clampControlsToDisplay(): void {
   }
 }
 
+function refreshWindowTitles(): void {
+  const locale = uiLanguage.effective;
+  if (recorderWindow && !recorderWindow.isDestroyed()) {
+    recorderWindow.setTitle(message(locale, "appName"));
+  }
+  if (libraryWindow && !libraryWindow.isDestroyed()) {
+    libraryWindow.setTitle(`${message(locale, "appName")}: ${message(locale, "sessions")}`);
+  }
+  if (recordingControlsWindow && !recordingControlsWindow.isDestroyed()) {
+    recordingControlsWindow.setTitle(
+      `${message(locale, "appName")}: ${message(locale, "recordingControls")}`,
+    );
+  }
+  if (terminalWindow && !terminalWindow.isDestroyed()) {
+    terminalWindow.setTitle(`${message(locale, "appName")}: ${message(locale, "recordedTerminal")}`);
+  }
+}
+
+function rebuildTray(): void {
+  appTray?.destroy();
+  appTray = null;
+  try {
+    appTray = createTray(
+      recorder,
+      requestStartRecording,
+      requestStopRecording,
+      showRecorderWindow,
+      showRecordingControls,
+      uiLanguage.effective,
+    );
+  } catch (err) {
+    log.warn("Tray unavailable:", err);
+  }
+}
+
 app.whenReady().then(async () => {
   if (process.platform === "win32") Menu.setApplicationMenu(null);
   if (dock && app.dock) app.dock.setIcon(dock);
+
+  try {
+    uiLanguage = await loadUiLanguage(app.getPath("userData"), app.getLocale());
+  } catch (error) {
+    log.warn("Could not load UI language:", error);
+    uiLanguage = { preference: null, effective: resolveUiLocale(app.getLocale()) };
+  }
 
   narration.initialize();
   try {
@@ -398,6 +444,25 @@ app.whenReady().then(async () => {
   ipcMain.handle(IPC.startConfirmed, () => startRecording());
   ipcMain.handle(IPC.recordingPrivacyReviewed, () => recordingPrivacy.markReviewed());
   log.info("Capture: recording all sources");
+
+  ipcMain.handle(IPC.uiLocale, () => uiLanguage);
+  ipcMain.handle(IPC.setUiLocale, async (_event, preference: unknown) => {
+    const safePreference = preference === null || preference === undefined
+      ? null
+      : isUiLocale(preference)
+        ? preference
+        : null;
+    try {
+      uiLanguage = await saveUiLanguage(app.getPath("userData"), safePreference, app.getLocale());
+    } catch (error) {
+      log.warn("Could not save UI language:", error);
+      uiLanguage = { preference: safePreference, effective: safePreference ?? resolveUiLocale(app.getLocale()) };
+    }
+    broadcast(IPC.uiLocaleChanged, uiLanguage);
+    refreshWindowTitles();
+    rebuildTray();
+    return uiLanguage;
+  });
 
   ipcMain.handle(IPC.openLibrary, () => openLibrary());
   ipcMain.handle(IPC.closeLibrary, () => {
@@ -507,7 +572,7 @@ app.whenReady().then(async () => {
     broadcast(IPC.statusChanged, status);
     syncRecordingWindows(status);
   });
-  recorderWindow = createRecorderWindow();
+  recorderWindow = createRecorderWindow(uiLanguage.effective);
 
   const handleDisplayChange = () => {
     clampControlsToDisplay();
@@ -517,17 +582,7 @@ app.whenReady().then(async () => {
   screen.on("display-removed", handleDisplayChange);
   screen.on("display-metrics-changed", handleDisplayChange);
 
-  try {
-    createTray(
-      recorder,
-      requestStartRecording,
-      requestStopRecording,
-      showRecorderWindow,
-      showRecordingControls,
-    );
-  } catch (err) {
-    log.warn("Tray unavailable:", err);
-  }
+  rebuildTray();
 
   const toggle = () => {
     const status = recorder.status();
@@ -589,6 +644,8 @@ app.on("before-quit", (event) => {
 });
 
 app.on("will-quit", () => {
+  appTray?.destroy();
+  appTray = null;
   globalShortcut.unregisterAll();
   void describer.dispose();
   void builder.dispose();

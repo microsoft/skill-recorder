@@ -1,3 +1,5 @@
+import type { UiLocale } from "../common/locales";
+
 /** Timecode counter — mm:ss, for the live recorder readout. */
 export function formatMs(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
@@ -7,8 +9,12 @@ export function formatMs(ms: number): string {
 }
 
 /** Compact duration, e.g. "9s" or "1m 12s". */
-export function formatDur(ms: number): string {
+export function formatDur(ms: number, locale: UiLocale = "en"): string {
   const s = Math.round(ms / 1000);
+  if (locale === "zh-CN") {
+    if (s < 60) return `${s}秒`;
+    return `${Math.floor(s / 60)}分 ${s % 60}秒`;
+  }
   if (s < 60) return `${s}s`;
   return `${Math.floor(s / 60)}m ${s % 60}s`;
 }
@@ -43,9 +49,9 @@ export function shortLabel(intent: string): string {
 }
 
 /** Human timestamp for a saved session, e.g. "Jul 25, 1:05 AM". */
-export function formatWhen(ms: number | null): string {
+export function formatWhen(ms: number | null, locale: UiLocale = "en"): string {
   if (ms == null) return "—";
-  return new Date(ms).toLocaleString(undefined, {
+  return new Date(ms).toLocaleString(locale === "en" ? undefined : locale, {
     month: "short",
     day: "numeric",
     hour: "numeric",

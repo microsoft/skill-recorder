@@ -10,8 +10,10 @@ import {
   narrationLanguageLabel,
 } from "../common/narration";
 import { formatMs } from "./format";
+import { useI18n } from "./i18n";
 
 export function RecordingControls() {
+  const { t } = useI18n();
   const [status, setStatus] = useState<RecorderStatus | null>(null);
   const [microphoneSettings, setMicrophoneSettings] =
     useState<MicrophoneSettingsStatus | null>(null);
@@ -140,7 +142,7 @@ export function RecordingControls() {
     setActionError(null);
     const enable = status.microphone.state !== "on";
     const result = await window.skillRecorder.setMicrophoneEnabled(enable);
-    if (!result.ok) setActionError(result.error ?? "Could not change the microphone.");
+    if (!result.ok) setActionError(result.error ?? t("microphoneNeedsAttention"));
     setMicrophonePending(false);
   }, [status]);
 
@@ -150,7 +152,7 @@ export function RecordingControls() {
     const result = await window.skillRecorder.selectMicrophone(deviceId);
     setMicrophoneSettings(result.status);
     if (!result.ok) {
-      setActionError(result.error ?? "Could not switch microphones.");
+      setActionError(result.error ?? t("selectMicrophoneFailed"));
     } else {
       setShowMicrophoneMenu(false);
     }
@@ -167,7 +169,7 @@ export function RecordingControls() {
       return;
     }
     if (!result.ok) {
-      setActionError(result.error ?? "Could not stop the recording.");
+      setActionError(result.error ?? t("stopRecording"));
       setFinishPending(null);
     }
   }, []);
@@ -183,7 +185,7 @@ export function RecordingControls() {
       return;
     }
     if (!result.ok) {
-      const error = result.error ?? "Could not discard the recording.";
+      const error = result.error ?? t("discardRecording");
       setActionError(error);
       setFinishPending(null);
       window.alert(error);
@@ -259,9 +261,9 @@ export function RecordingControls() {
           aria-describedby="recording-discard-description"
         >
           <div>
-            <h2 id="recording-discard-title">Discard this recording?</h2>
+            <h2 id="recording-discard-title">{t("discardThisRecording")}</h2>
             <p id="recording-discard-description">
-              Screen video, activity, recorded-terminal output, and voice segments will be permanently deleted.
+              {t("discardRecordingDetail")}
             </p>
           </div>
           <div className="recording-discard-actions">
@@ -278,7 +280,7 @@ export function RecordingControls() {
               disabled={finishPending === "discard"}
               onClick={() => void discard()}
             >
-              {finishPending === "discard" ? "Discarding..." : "Discard recording"}
+              {finishPending === "discard" ? t("discardingNow") : t("discardRecording")}
             </button>
           </div>
         </section>
@@ -293,9 +295,9 @@ export function RecordingControls() {
           aria-describedby="recording-terminal-description"
         >
           <div>
-            <h2 id="recording-terminal-title">A terminal command is still running</h2>
+            <h2 id="recording-terminal-title">{t("terminalStillRunning")}</h2>
             <p id="recording-terminal-description">
-              Closing the recording will stop the command and save its output as interrupted.
+              {t("closingRecordingStopsCommand")}
             </p>
           </div>
           <div className="recording-discard-actions">
@@ -330,10 +332,10 @@ export function RecordingControls() {
         <section
           ref={microphoneMenuRef}
           className="recording-microphone-menu"
-          aria-label="Choose microphone"
+          aria-label={t("chooseMicrophone")}
         >
           <header>
-            <strong>Microphone</strong>
+            <strong>{t("microphone")}</strong>
             <span>
               {microphoneOn
                 ? `Using ${activeMicrophoneLabel}`
@@ -343,7 +345,7 @@ export function RecordingControls() {
           <div
             className="recording-microphone-options"
             role="radiogroup"
-            aria-label="Audio input"
+            aria-label={t("audioInput")}
           >
             {microphoneSettings?.devices.map((device) => {
               const selected =
@@ -434,10 +436,10 @@ export function RecordingControls() {
             <button
               className="recording-microphone-menu-toggle"
               disabled={lifecycleBusy || microphoneBusy}
-              aria-label="Choose microphone"
+              aria-label={t("chooseMicrophone")}
               aria-haspopup="dialog"
               aria-expanded={showMicrophoneMenu}
-              title="Choose microphone"
+              title={t("chooseMicrophone")}
               onClick={() => {
                 setActionError(null);
                 setConfirmDiscard(false);
@@ -458,11 +460,11 @@ export function RecordingControls() {
                 ? "Open recorded terminal"
                 : `Focus recorded terminal. ${terminalStatus?.state ?? ""}`
             }
-            title="Open a terminal captured only with this recording"
+            title={t("openTerminalTitle")}
             onClick={() => void openTerminal()}
           >
             <TerminalIcon />
-            <span>{terminalPending ? "Opening" : "Terminal"}</span>
+            <span>{terminalPending ? t("opening") : t("terminal")}</span>
             {terminalStatus?.state !== "closed" && (
               <span
                 className={`recording-terminal-dot ${
@@ -485,7 +487,7 @@ export function RecordingControls() {
             Discard
           </button>
           <button className="recording-done" disabled={lifecycleBusy} onClick={() => void done(false)}>
-            {finishPending === "done" || status?.transition === "stopping" ? "Saving..." : "Done"}
+            {finishPending === "done" || status?.transition === "stopping" ? t("savingNow") : t("done")}
           </button>
         </div>
         <span className="recording-drag-handle" aria-hidden />

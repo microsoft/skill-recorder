@@ -1,5 +1,6 @@
 import type { Analysis, AnalysisFeedback, AnalysisStep, Confidence } from "./analysis";
 import type { AutomationPlan, BuiltAutomation } from "./automation";
+import type { UiLanguagePreference, UiLanguageState } from "./locales";
 import type { MicrophoneDevice } from "./microphone";
 import type { NarrationLanguage } from "./narration";
 import type { ScreenSource } from "./screen";
@@ -517,10 +518,18 @@ export const IPC = {
   closeLibrary: "ui:close-library",
   recordingControlsExpanded: "ui:recording-controls-expanded",
   fitRecorderHeight: "ui:fit-recorder-height",
+  uiLocale: "ui:locale",
+  setUiLocale: "ui:set-locale",
+  uiLocaleChanged: "ui:locale-changed",
 } as const;
 
 /** Shape exposed on `window.skillRecorder` by the preload bridge. */
 export interface SkillRecorderApi {
+  /** The interface language preference and its effective locale. */
+  uiLanguage(): Promise<UiLanguageState>;
+  /** Store an explicit interface language (or null for system default). */
+  setUiLocale(preference: UiLanguagePreference): Promise<UiLanguageState>;
+  onUiLocaleChanged(cb: (state: UiLanguageState) => void): () => void;
   /** Request a start; may require the pre-recording privacy warning first. */
   start(): Promise<StartResult>;
   /** Start once after the user explicitly proceeds through the privacy warning. */

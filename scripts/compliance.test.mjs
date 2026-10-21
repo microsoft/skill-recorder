@@ -939,10 +939,15 @@ test("source and release instructions remain compliance-preserving", async () =>
     windowsInstaller,
     /\(& \$nodeExe [^\r\n]+\| Select-Object -First 1\)/,
   );
+  const dependencyInstaller = await readFile(
+    path.join(repoRoot, "scripts", "install-windows-dependencies.mjs"), "utf8",
+  );
+  assert.match(windowsInstaller, /"scripts\\install-windows-dependencies\.mjs"/);
   assert.match(
-    windowsInstaller,
+    dependencyInstaller,
     /"ci",\s+"--no-audit",\s+"--no-fund",\s+"--ignore-scripts=false",\s+"--dangerously-allow-all-scripts=false",\s+"--strict-allow-scripts"/,
   );
+  assert.doesNotMatch(dependencyInstaller, /--registry|--global|--location|strict.ssl.*false|REPLACE_REGISTRY_HOST/);
   assert.match(windowsInstaller, /"scripts\\check-lockfile-portability\.mjs"/);
   assert.match(windowsInstaller, /"scripts\\install-reviewed-electron\.mjs"/);
   assert.doesNotMatch(windowsInstaller, /node_modules\\electron\\install\.js/);

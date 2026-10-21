@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 import type { Analysis, AnalysisStep } from "../common/analysis";
 import type {
@@ -10,6 +10,7 @@ import type {
   SessionSummary,
   SkillBuildProgress,
   SkillPlacement,
+  SkillPreview,
 } from "../common/ipc";
 import { isCopilotSignedOutError } from "../common/ipc";
 import type {
@@ -39,7 +40,10 @@ import {
 } from "./plan-edit";
 import { formatBytes, formatDur, formatWhen, shortLabel } from "./format";
 import { skillPlacementModel, skillTargetFor } from "./skill-placement";
+import { SkillReviewModal } from "./SkillReviewModal";
+import { initialSkillReviewState, SkillOperationGuard, skillReviewBusy, skillReviewReducer } from "./skill-review-state";
 import { SensitiveReview } from "./SensitiveReview";
+import { AnalysisRecovery, completeSignIn, type AnalysisRun } from "./analysis-recovery";
 
 export function Library() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -412,17 +416,97 @@ function DebugDownload({ sessionId }: { sessionId: string }) {
 
 /**
  * Error banner for the Copilot-backed panels. When the CLI has no credentials the app
- * offers to open a terminal on its *bundled* Copilot binary — there's no global
- * `copilot` command to send people to.
+ * waits for verified authentication. Only analysis supplies a recovery callback;
+ * building, creating and installing always require another explicit user action.
  */
-function AnalysisError({ error }: { error: string }) {
+function AnalysisError({
+  error,
+  onAuthenticated,
+  onSignInStart,
+  onSignInEnd,
+}: {
+  error: string;
+  onAuthenticated?: () => void | Promise<void>;
+  onSignInStart?: () => boolean;
+  onSignInEnd?: (canceled: boolean) => void;
+}) {
   const [signIn, setSignIn] = useState<CopilotSignInResult | null>(null);
-  const [opening, setOpening] = useState(false);
+  const [waiting, setWaiting] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const attempt = useRef<string | null>(null);
+  const generation = useRef(0);
+  const live = useRef(false);
+  const endCallback = useRef(onSignInEnd);
+  endCallback.current = onSignInEnd;
+
+  useEffect(() => {
+    live.current = true;
+    setWaiting(false);
+    setSignIn(null);
+    setFailure(null);
+    return () => {
+      live.current = false;
+      generation.current++;
+      const id = attempt.current;
+      attempt.current = null;
+      if (id) {
+        endCallback.current?.(true);
+        void window.skillRecorder.cancelCopilotSignIn(id).catch(() => {
+          console.warn("Could not cancel Copilot sign-in during panel cleanup.");
+        });
+      }
+    };
+  }, [error]);
+
+  const cancelSignIn = async () => {
+    const id = attempt.current;
+    if (!id) return;
+    const canceledGeneration = generation.current;
+    attempt.current = null;
+    onSignInEnd?.(true);
+    setWaiting(false);
+    setFailure(onAuthenticated
+      ? "Sign-in canceled. Analysis will not retry automatically."
+      : "Sign-in canceled.");
+    try {
+      await window.skillRecorder.cancelCopilotSignIn(id);
+    } catch (err) {
+      if (live.current && generation.current === canceledGeneration) {
+        setFailure(`Could not cancel sign-in: ${String(err)}`);
+      }
+    }
+  };
 
   const openSignIn = async () => {
-    setOpening(true);
-    setSignIn(await window.skillRecorder.copilotSignIn());
-    setOpening(false);
+    if (attempt.current) return;
+    const id = crypto.randomUUID();
+    generation.current++;
+    attempt.current = id;
+    setWaiting(true);
+    setSignIn(null);
+    setFailure(null);
+    let canceledResult = false;
+    try {
+      // A false return suppresses stale recovery without suppressing sign-in itself.
+      const recover = onSignInStart?.() ?? true;
+      const result = await completeSignIn(
+        window.skillRecorder.copilotSignIn(id),
+        () => live.current && attempt.current === id,
+        recover ? onAuthenticated : undefined,
+      );
+      if (result && live.current && attempt.current === id) {
+        canceledResult = !result.ok && result.status === "canceled";
+        setSignIn(result);
+      }
+    } catch (err) {
+      if (live.current && attempt.current === id) setFailure(String(err));
+    } finally {
+      if (live.current && attempt.current === id) {
+        attempt.current = null;
+        onSignInEnd?.(canceledResult);
+        setWaiting(false);
+      }
+    }
   };
 
   if (!isCopilotSignedOutError(error)) return <div className="analysis-error">{error}</div>;
@@ -431,15 +515,28 @@ function AnalysisError({ error }: { error: string }) {
     <div className="analysis-error">
       <p>{error}</p>
       <div className="signin-row">
-        <button className="row-action" onClick={() => void openSignIn()} disabled={opening}>
-          {opening ? "Opening…" : "Sign in to Copilot"}
+        <button className="row-action" onClick={() => void openSignIn()} disabled={waiting}>
+          {waiting ? "Waiting for browser sign-in…" : "Sign in to Copilot"}
         </button>
-        {signIn?.ok && (
-          <span>A terminal opened — finish signing in there, then try again.</span>
+        {waiting && (
+          <>
+            <span role="status">Follow the app prompts and finish signing in in your browser.</span>
+            <button className="linky" onClick={() => void cancelSignIn()}>Cancel sign-in</button>
+          </>
         )}
-        {signIn && !signIn.ok && <span>{signIn.error ?? "Couldn't open a terminal."}</span>}
+        {signIn?.ok && (
+          <span>Signed in to Copilot. Try your action again when ready.</span>
+        )}
+        {signIn && !signIn.ok && (
+          <span>{signIn.error ?? (
+            signIn.status === "canceled" ? "Sign-in canceled." :
+            signIn.status === "timed-out" ? "Sign-in timed out. Try again." :
+            "Couldn't sign in to Copilot."
+          )}</span>
+        )}
+        {failure && <span role="alert">{failure}</span>}
       </div>
-      {signIn?.command && (
+      {signIn && !signIn.ok && signIn.command && (
         <>
           <p className="signin-manual">Or run this command yourself:</p>
           <code className="signin-command">{signIn.command}</code>
@@ -478,6 +575,13 @@ function AnalysisWorkspace({
 
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+  const [signInPending, setSignInPending] = useState(false);
+  const signInPendingRef = useRef(false);
+  const pendingRecovery = useRef<AnalysisRun | null>(null);
+  const recovery = useRef(new AnalysisRecovery());
+  const [failedRun, setFailedRun] = useState<AnalysisRun | null>(null);
+  const latestRun = useRef<AnalysisRun | null>(null);
+  const workspaceLive = useRef(false);
   const [statusLine, setStatusLine] = useState("");
   const [error, setError] = useState<string | null>(null);
   // Informational summary of what the on-device scan redacted before sending;
@@ -505,9 +609,15 @@ function AnalysisWorkspace({
         : "none";
   const [launch, setLaunch] = useState<LaunchTarget>(initialLaunch);
   const [chosenArch, setChosenArch] = useState<SkillArchitecture>(DEFAULT_TARGET.architecture);
-  // Set while the user is deliberately canceling, so the aborted run's rejection
-  // doesn't surface as an error toast.
-  const canceled = useRef(false);
+  useEffect(() => {
+    workspaceLive.current = true;
+    return () => {
+      workspaceLive.current = false;
+      recovery.current.invalidate();
+      signInPendingRef.current = false;
+      pendingRecovery.current = null;
+    };
+  }, [sessionId]);
 
   useEffect(() => {
     let live = true;
@@ -561,40 +671,106 @@ function AnalysisWorkspace({
     return window.skillRecorder.onAnalyzeProgress((p: AnalyzeProgress) => {
       if (p.sessionId !== sessionId) return;
       setStatusLine(p.message);
-      if (p.phase === "done" || p.phase === "error") setAnalyzing(false);
+      // The invocation, not a progress event, owns the busy state.
     });
   }, [sessionId]);
 
-  const run = useCallback(
-    async () => {
-      canceled.current = false;
+  const executeRun = useCallback(
+    async (token: AnalysisRun) => {
+      latestRun.current = token;
       setEditing(false);
       setDraftTitle("");
       setDraftIntent("");
       setReview(null);
       setError(null);
       setAnalyzing(true);
+      setFailedRun(null);
       setStatusLine("Starting…");
-      const res = await window.skillRecorder.analyze(sessionId);
-      if (res.ok && res.analysis) {
-        setAnalysis(res.analysis);
-        setSteps(res.analysis.steps);
-        stepsDirty.current = false;
-        // Non-blocking: analysis already ran. If anything was redacted before it
-        // was sent, show an informational summary alongside the result.
-        setReview(res.review ?? null);
-      } else if (!canceled.current) setError(res.error ?? "Analysis failed");
-      setAnalyzing(false);
-      void onChanged();
+      let signedOut = false;
+      try {
+        const res = await window.skillRecorder.analyze(sessionId);
+        if (!workspaceLive.current || !recovery.current.accepts(token)) return;
+        if (res.ok && res.analysis) {
+          setAnalysis(res.analysis);
+          setSteps(res.analysis.steps);
+          stepsDirty.current = false;
+          // Preserve the existing narration/redaction pipeline and result handling.
+          setReview(res.review ?? null);
+        } else {
+          const message = res.error ?? "Analysis failed";
+          signedOut = isCopilotSignedOutError(message);
+          setError(message);
+          setFailedRun(token);
+        }
+      } catch (err) {
+        if (workspaceLive.current && recovery.current.accepts(token)) {
+          const message = String(err);
+          signedOut = isCopilotSignedOutError(message);
+          setError(message);
+          setFailedRun(token);
+        }
+      } finally {
+        if (workspaceLive.current && recovery.current.isCurrent(token)) {
+          recovery.current.finishRun(token, signedOut);
+          setAnalyzing(false);
+          try {
+            await onChanged();
+          } catch (err) {
+            // A refresh failure must not be mistaken for an interrupted analysis.
+            if (workspaceLive.current && latestRun.current === token) {
+              setFailedRun(null);
+              setError(`Could not refresh recordings: ${String(err)}`);
+            }
+          }
+        }
+      }
     },
     [sessionId, onChanged],
   );
 
+  const run = useCallback(async () => {
+    if (signInPendingRef.current) return;
+    const token = recovery.current.beginRun();
+    if (token) await executeRun(token);
+  }, [executeRun]);
+
+  const onSignInStart = useCallback(() => {
+    signInPendingRef.current = true;
+    setSignInPending(true);
+    setConfirmReanalysis(false);
+    const recover = failedRun != null && recovery.current.beginSignIn(failedRun);
+    pendingRecovery.current = recover ? failedRun : null;
+    return recover;
+  }, [failedRun]);
+
+  const onSignInEnd = useCallback((canceled: boolean) => {
+    signInPendingRef.current = false;
+    if (pendingRecovery.current) recovery.current.endSignIn(pendingRecovery.current, canceled);
+    pendingRecovery.current = null;
+    if (workspaceLive.current) setSignInPending(false);
+  }, []);
+
+  const retryAfterSignIn = useCallback(async () => {
+    if (!workspaceLive.current || !failedRun) return;
+    const token = recovery.current.retry(failedRun);
+    if (!token) return;
+    signInPendingRef.current = false;
+    setSignInPending(false);
+    await executeRun(token);
+  }, [failedRun, executeRun]);
+
   const cancel = useCallback(async () => {
-    canceled.current = true;
+    const token = latestRun.current;
+    recovery.current.cancelRun();
     setStatusLine("Stopping…");
-    await window.skillRecorder.cancelAnalysis(sessionId);
-    setAnalyzing(false);
+    try {
+      await window.skillRecorder.cancelAnalysis(sessionId);
+    } catch (err) {
+      if (workspaceLive.current && latestRun.current === token) {
+        setFailedRun(null);
+        setError(`Could not cancel analysis: ${String(err)}`);
+      }
+    }
   }, [sessionId]);
 
   const startEdit = useCallback(() => {
@@ -602,6 +778,7 @@ function AnalysisWorkspace({
     setDraftTitle(analysis.title ?? "");
     setDraftIntent(analysis.intent);
     setError(null);
+    setFailedRun(null);
     setEditing(true);
   }, [analysis]);
 
@@ -615,6 +792,7 @@ function AnalysisWorkspace({
       setAnalysis(res.analysis);
       setEditing(false);
     } else {
+      setFailedRun(null);
       setError(res.error ?? "Could not save your changes");
     }
     void onChanged();
@@ -681,7 +859,7 @@ function AnalysisWorkspace({
           </p>
         )}
 
-        {voiceStale && !analyzing && (
+        {voiceStale && !analyzing && !signInPending && (
           <div className="voice-card">
             <div className="voice-card-copy">
               <strong>Voice transcript added after this analysis</strong>
@@ -717,7 +895,7 @@ function AnalysisWorkspace({
         {summary.processed && !analysis && !analyzing && (
           <div className="ws-empty">
             <p className="ws-empty-lead">See what you did in this recording, step by step.</p>
-            <button className="record-cta" onClick={() => void run()}>
+            <button className="record-cta" onClick={() => void run()} disabled={signInPending}>
               Analyze recording
             </button>
             <details className="analyze-disclosure">
@@ -768,9 +946,16 @@ function AnalysisWorkspace({
           </p>
         )}
 
-        {error && <AnalysisError error={error} />}
+        {error && (
+          <AnalysisError
+            error={error}
+            onSignInStart={onSignInStart}
+            onSignInEnd={onSignInEnd}
+            onAuthenticated={failedRun && !failedRun.retried ? retryAfterSignIn : undefined}
+          />
+        )}
 
-        {analysis && !analyzing && (
+        {analysis && !analyzing && !signInPending && (
           <div className="ws-read">
             <div className="summary">
               <div className="summary-head">
@@ -843,7 +1028,7 @@ function AnalysisWorkspace({
         )}
       </div>
 
-      {analysis && !analyzing && (
+      {analysis && !analyzing && !signInPending && (
         <div className="ws-foot">
           <span className="foot-status">{launchFootStatus(summary)}</span>
           <div className="ws-foot-actions">
@@ -966,35 +1151,78 @@ function SkillBuilderView({
   );
   // If this recording is already a skill, hold on a spinner until we've loaded it,
   // so we never flash the planning state before jumping to the skill.
-  const [phase, setPhase] = useState<BuildPhase>(hasSkill ? "loading" : "ready");
+  const [{ phase, preview, reviewOpen, statusLine, error }, dispatch] = useReducer(
+    skillReviewReducer, hasSkill, initialSkillReviewState,
+  );
   const [architecture, setArchitecture] = useState<SkillArchitecture>(initialArch);
   const [plan, setPlan] = useState<SkillPlan | null>(null);
-  const [statusLine, setStatusLine] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [exportedPath, setExportedPath] = useState("");
   const [builtName, setBuiltName] = useState("");
-  const canceled = useRef(false);
-  const inFlight = useRef(false);
+  const operations = useRef(new SkillOperationGuard());
+  const flowVersion = useRef(0);
+  const stopping = useRef(false);
+  const mounted = useRef(false);
+  const previewRef = useRef<SkillPreview | null>(null);
+  const workspaceRef = useRef<HTMLElement>(null);
+  const reviewButtonRef = useRef<HTMLButtonElement>(null);
+  const doneRef = useRef<HTMLDivElement>(null);
   const [placement, setPlacement] = useState<SkillPlacement>(() => defaultPlacementFor(initialArch));
   const placementModel = useMemo(() => skillPlacementModel(skillTargetFor(architecture)), [architecture]);
 
+  const discardPreview = useCallback(async (id: string, reportError = false) => {
+    const version = flowVersion.current;
+    try {
+      const result = await window.skillRecorder.discardSkillPreview(sessionId, id);
+      if (!result.ok) throw new Error(result.error ?? "Could not discard the preview");
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      if (reportError && mounted.current && flowVersion.current === version) {
+        dispatch({ type: "error", error: message });
+      }
+      else console.warn("Could not discard skill preview", cause);
+    }
+  }, [sessionId]);
+
+  const invalidatePreview = useCallback(() => {
+    flowVersion.current++;
+    const previous = previewRef.current;
+    previewRef.current = null;
+    dispatch({ type: "invalidate" });
+    if (previous) void discardPreview(previous.id, true);
+  }, [discardPreview]);
+
   const updatePlan = useCallback((part: Partial<SkillPlan>) => {
+    invalidatePreview();
     setPlan((prev) => (prev ? { ...prev, ...part } : prev));
-  }, []);
+  }, [invalidatePreview]);
 
   // Leaving the builder (session switch or Close) discards an in-progress plan —
   // we don't save drafts — so stop any run that's still going in the background.
   useEffect(() => {
+    mounted.current = true;
+    const guard = operations.current;
     return () => {
-      if (inFlight.current) void window.skillRecorder.cancelSkill(sessionId);
+      mounted.current = false;
+      flowVersion.current++;
+      if (guard.invalidate()) {
+        void window.skillRecorder.cancelSkill(sessionId).then((result) => {
+          if (!result.ok) throw new Error("Could not cancel skill work");
+        }).catch((cause: unknown) => {
+          console.warn("Could not cancel skill work on departure", cause);
+        });
+      }
+      const previous = previewRef.current;
+      previewRef.current = null;
+      if (previous) void discardPreview(previous.id);
     };
-  }, [sessionId]);
+  }, [sessionId, discardPreview]);
 
   // Reopen straight to the exported state if this recording already has a skill.
   useEffect(() => {
     let live = true;
+    const version = flowVersion.current;
     void window.skillRecorder.getSkill(sessionId).then((s: BuiltSkill | null) => {
-      if (!live) return;
+      if (!live || flowVersion.current !== version) return;
       if (s?.exportedPath) {
         setBuiltName(s.name);
         setExportedPath(s.exportedPath);
@@ -1003,11 +1231,16 @@ function SkillBuilderView({
         // current default placement from the manifest.
         setPlacement(defaultPlacementFor(s.architecture));
         if (s.plan) setPlan(s.plan);
-        setPhase("done");
+        dispatch({ type: "done" });
       } else if (hasSkill) {
         // We expected a skill but couldn't load it; fall back to the ready screen.
-        setPhase("ready");
+        dispatch({ type: "settle", phase: "ready" });
       }
+    }).catch((cause: unknown) => {
+      if (live && flowVersion.current === version) dispatch({
+        type: "settle", phase: "ready",
+        error: cause instanceof Error ? cause.message : "Could not open the skill",
+      });
     });
     return () => {
       live = false;
@@ -1016,65 +1249,143 @@ function SkillBuilderView({
 
   useEffect(() => {
     return window.skillRecorder.onSkillProgress((p: SkillBuildProgress) => {
-      if (p.sessionId === sessionId) setStatusLine(p.message);
+      if (p.sessionId === sessionId && mounted.current && operations.current.busy && !stopping.current) {
+        dispatch({ type: "progress", message: p.message });
+      }
     });
   }, [sessionId]);
 
   const runPlan = useCallback(async () => {
-    canceled.current = false;
-    inFlight.current = true;
-    setError(null);
-    setStatusLine("Planning the skill…");
-    setPhase("planning");
-    const res = await window.skillRecorder.buildSkill({ sessionId, architecture });
-    inFlight.current = false;
-    if (res.ok && res.plan) {
-      setPlan(res.plan);
-      setPhase("plan");
-    } else if (!canceled.current) {
-      setError(res.error ?? "Planning failed");
-      setPhase("ready");
+    const operation = operations.current.begin();
+    if (!operation) return;
+    invalidatePreview();
+    flowVersion.current++;
+    dispatch({ type: "start", phase: "planning", message: "Planning the skill…" });
+    try {
+      const res = await window.skillRecorder.buildSkill({ sessionId, architecture });
+      if (!mounted.current || !operations.current.isCurrent(operation)) return;
+      if (res.ok && res.plan) {
+        setPlan(res.plan);
+        dispatch({ type: "settle", phase: "plan" });
+      } else {
+        dispatch({ type: "settle", phase: "ready", error: res.error ?? "Planning failed" });
+      }
+    } catch (cause) {
+      if (mounted.current && operations.current.isCurrent(operation)) {
+        dispatch({ type: "settle", phase: "ready", error: cause instanceof Error ? cause.message : "Planning failed" });
+      }
+    } finally {
+      operations.current.finish(operation);
     }
-  }, [sessionId, architecture]);
+  }, [sessionId, architecture, invalidatePreview]);
+
+  const review = useCallback(async () => {
+    if (!plan) return;
+    dispatch({ type: "visibility", open: true });
+    if (previewRef.current) return;
+    const operation = operations.current.begin();
+    if (!operation) return;
+    flowVersion.current++;
+    dispatch({ type: "start", phase: "preparing", message: "Preparing SKILL.md preview…" });
+    try {
+      const res = await window.skillRecorder.prepareSkill(sessionId, plan);
+      if (!mounted.current || !operations.current.isCurrent(operation)) {
+        if (res.preview) void discardPreview(res.preview.id);
+        return;
+      }
+      if (res.ok && res.preview) {
+        previewRef.current = res.preview;
+        dispatch({ type: "preview", preview: res.preview });
+      } else {
+        dispatch({ type: "settle", phase: "plan", error: res.error ?? "Could not prepare the preview" });
+      }
+    } catch (cause) {
+      if (mounted.current && operations.current.isCurrent(operation)) {
+        dispatch({ type: "settle", phase: "plan", error: cause instanceof Error ? cause.message : "Could not prepare the preview" });
+      }
+    } finally {
+      operations.current.finish(operation);
+    }
+  }, [sessionId, plan, discardPreview]);
 
   const place = useCallback(
     async (which: SkillPlacement) => {
       if (!plan) return;
-      canceled.current = false;
-      inFlight.current = true;
-      setError(null);
-      setStatusLine(which === "export" ? "Exporting the skill…" : "Writing the skill…");
-      setPhase("creating");
-      const res = await window.skillRecorder.createSkill(sessionId, plan, which);
-      inFlight.current = false;
-      if (res.ok && res.skill) {
-        setBuiltName(res.skill.name);
-        setExportedPath(res.path ?? res.skill.exportedPath ?? "");
-        setPlacement(res.placement ?? which);
-        setPhase("done");
-      } else if (res.canceled) {
-        // User dismissed the export folder picker — quietly return to the plan.
-        setPhase("plan");
-      } else if (!canceled.current) {
-        setError(res.error ?? "Could not create the skill");
-        setPhase("plan");
+      const operation = operations.current.begin();
+      if (!operation) return;
+      flowVersion.current++;
+      dispatch({ type: "start", phase: "creating", message: which === "export" ? "Exporting the skill…" : "Writing the skill…" });
+      try {
+        const res = await window.skillRecorder.createSkill(sessionId, plan, which, previewRef.current?.id);
+        if (!mounted.current) return;
+        if (res.ok && res.skill) {
+          if (!operations.current.commit(operation)) return;
+          setBuiltName(res.skill.name);
+          setExportedPath(res.path ?? res.skill.exportedPath ?? "");
+          setPlacement(res.placement ?? which);
+          previewRef.current = null;
+          dispatch({ type: "done" });
+        } else {
+          if (!operations.current.isCurrent(operation)) return;
+          // Folder-picker cancellation and placement failures both retain the candidate.
+          // An expired candidate must be reviewed again explicitly, never silently regenerated.
+          if (res.previewExpired) previewRef.current = null;
+          dispatch({
+            type: "settle",
+            phase: "plan",
+            previewExpired: res.previewExpired,
+            error: res.canceled ? undefined : res.error ?? "Could not create the skill",
+          });
+        }
+      } catch (cause) {
+        if (mounted.current && operations.current.isCurrent(operation)) {
+          dispatch({ type: "settle", phase: "plan", error: cause instanceof Error ? cause.message : "Could not create the skill" });
+        }
+      } finally {
+        operations.current.finish(operation);
       }
     },
     [sessionId, plan],
   );
 
   const cancelRun = useCallback(async () => {
-    canceled.current = true;
-    inFlight.current = false;
-    setStatusLine("Stopping…");
-    await window.skillRecorder.cancelSkill(sessionId);
-    setPhase(plan ? "plan" : "ready");
+    if (stopping.current || !operations.current.busy) return;
+    const cancellation = operations.current.beginCancellation();
+    if (!cancellation) return;
+    stopping.current = true;
+    flowVersion.current++;
+    const { operation, originalSettled } = cancellation;
+    dispatch({ type: "start", phase: "stopping", message: "Stopping…" });
+    let error: string | undefined;
+    try {
+      const res = await window.skillRecorder.cancelSkill(sessionId);
+      if (!res.ok) throw new Error("Could not cancel skill work");
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : "Could not cancel skill work";
+    }
+    // Acknowledging cancellation only marks the backend operation. Its original
+    // request may still own a model turn or an open native folder picker.
+    try {
+      await originalSettled;
+      if (mounted.current && operations.current.isCurrent(operation)) {
+        dispatch({ type: "settle", phase: plan ? "plan" : "ready", error });
+      }
+    } finally {
+      operations.current.finish(operation);
+      stopping.current = false;
+    }
   }, [sessionId, plan]);
 
-  const busy = phase === "planning" || phase === "creating";
+  const restoreReviewFocus = useCallback(() => {
+    if (mounted.current) (doneRef.current ?? reviewButtonRef.current ?? workspaceRef.current)?.focus();
+  }, []);
+  useEffect(() => {
+    if (phase === "done") doneRef.current?.focus();
+  }, [phase]);
+  const busy = skillReviewBusy(phase);
 
   return (
-    <section className="ws">
+    <section className="ws skill-builder" ref={workspaceRef} tabIndex={-1}>
       <div className="ws-head">
         <div className="ws-titles">
           <span className="eyebrow">{phase === "done" ? "Skill" : "Create skill"}</span>
@@ -1110,12 +1421,17 @@ function SkillBuilderView({
         )}
 
         {busy && (
-          <div className="status-line">
+          <div className="status-line" role="status">
             <span className="spinner" />
             <span className="status-text">{statusLine || "Working…"}</span>
-            <button className="linky status-cancel" onClick={cancelRun}>
+            <button className="linky status-cancel" onClick={cancelRun} disabled={phase === "stopping"}>
               Cancel
             </button>
+            {(phase === "preparing" || preview) && (
+              <button className="ghost" ref={reviewButtonRef} onClick={() => dispatch({ type: "visibility", open: true })}>
+                Review SKILL.md
+              </button>
+            )}
           </div>
         )}
 
@@ -1158,7 +1474,7 @@ function SkillBuilderView({
         )}
 
         {phase === "done" && (
-          <div className="sb-done">
+          <div className="sb-done" ref={doneRef} tabIndex={-1}>
             <div className="sb-check" aria-hidden>
               ✓
             </div>
@@ -1180,6 +1496,9 @@ function SkillBuilderView({
         <div className="ws-foot">
           <span className="foot-status" />
           <div className="ws-foot-actions">
+            <button className="ghost" ref={reviewButtonRef} onClick={() => void review()}>
+              Review SKILL.md
+            </button>
             {placementModel.actions.map((action) => (
               <button
                 key={action.placement}
@@ -1205,6 +1524,21 @@ function SkillBuilderView({
             )}
           </div>
         </div>
+      )}
+      {reviewOpen && (
+        <SkillReviewModal
+          preview={preview}
+          busy={busy}
+          stopping={phase === "stopping"}
+          statusLine={statusLine}
+          error={error}
+          placementModel={placementModel}
+          onPlace={(which) => void place(which)}
+          onPrepare={() => void review()}
+          onCancel={() => void cancelRun()}
+          onClose={() => dispatch({ type: "visibility", open: false })}
+          restoreFocus={restoreReviewFocus}
+        />
       )}
     </section>
   );

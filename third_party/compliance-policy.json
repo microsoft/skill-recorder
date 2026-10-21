@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "copilotCli": "1.0.71",
+  "copilotCli": "1.0.78",
   "copilotSdk": "1.0.7",
   "electron": {
     "version": "43.1.1",

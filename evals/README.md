@@ -20,6 +20,7 @@ faithful stand-in for a real recording. Matching **mock pages** live in
 
 ```bash
 npm run eval                       # all scenarios
+npm run eval:terminal              # recorded-terminal command/output scenarios
 npm run eval -- --only=web-to-spreadsheet
 npm run eval -- --judge            # also run the semantic LLM judge
 npm run eval -- --keep             # print the temp sessions dir (artifacts kept)
@@ -86,6 +87,9 @@ Business, repeatable knowledge-work patterns (`evals/scenarios/`):
 | `release-notes` | Compile release notes from merged PRs, then version + deploy (Terminal + GitHub + editor) |
 | `lead-to-crm` | Qualify inbound leads and enter them into the CRM (Mail + LinkedIn + Salesforce) |
 | `windows-deploy` | Deploy a web app to Azure and log the live URL, on Windows (Edge + Windows Terminal/pwsh + Excel) |
+| `terminal-output-required` | Diagnose a failing test by querying indexed terminal output |
+| `terminal-failure-recovery` | Distinguish a failed deployment from the successful retry |
+| `terminal-sensitive-output` | Use terminal results without leaking a captured token |
 
 The last three are longer, multi-app **business processes** — they loop over several
 records, mix a native app with the browser and/or terminal, and end in a submit /

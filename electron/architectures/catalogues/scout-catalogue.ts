@@ -10,7 +10,61 @@ import { defineCatalogueProvider } from "../catalogue-provider";
  * generated skill can only rely on what every Scout install ships with. Refresh
  * this when Scout's native tools/skills change.
  */
-export const SCOUT_CATALOGUE_VERSION = "2026-07-26";
+export const SCOUT_CATALOGUE_VERSION = "2026-08-08";
+
+/** Exact runtime tool/skill identifiers accepted in Scout skill-plan steps. */
+export const SCOUT_PLAN_TOOL_IDS = [
+  "workiq_search_chats",
+  "workiq_list_chats",
+  "workiq_get_chat",
+  "workiq_list_chat_messages",
+  "workiq_send_chat_message",
+  "workiq_reply_to_chat_message",
+  "workiq_search_emails",
+  "workiq_list_emails",
+  "workiq_get_email",
+  "workiq_send_email",
+  "workiq_create_draft",
+  "workiq_reply_to_email",
+  "workiq_forward_email",
+  "workiq_get_schedule",
+  "workiq_list_events",
+  "workiq_get_event",
+  "workiq_create_event",
+  "workiq_update_event",
+  "workiq_find_meeting_times",
+  "workiq_respond_to_event",
+  "workiq_search_files",
+  "workiq_list_files",
+  "workiq_get_recent_files",
+  "workiq_download_file",
+  "workiq_upload_file",
+  "workiq_search_people",
+  "workiq_get_my_profile",
+  "workiq_get_my_manager",
+  "workiq_get_relevant_people",
+  "view",
+  "glob",
+  "grep",
+  "web_fetch",
+  "bash",
+  "browser_navigate",
+  "browser_snapshot",
+  "browser_click",
+  "browser_type",
+  "browser_fill_form",
+  "browser_select_option",
+  "browser_press_key",
+  "browser_wait_for",
+  "browser_take_screenshot",
+  "pptx",
+  "docx",
+  "xlsx",
+  "loop",
+  "web-artifacts-builder",
+  "expense-report",
+  "excalidraw",
+] as const;
 
 /**
  * The reusable core of the Scout catalogue: the native tools, built-in skills, and
@@ -38,8 +92,10 @@ a web UI. Reach for these in order:
      \`workiq_download_file\`, \`workiq_upload_file\`.
    - People: \`workiq_search_people\`, \`workiq_get_my_profile\`, \`workiq_get_my_manager\`,
      \`workiq_get_relevant_people\`.
-2. **SDK built-ins — local files, code, and the web.** \`view\` (read a file), \`glob\`
-   (find files by pattern), \`grep\` (search file contents), \`web_fetch\` (fetch a URL).
+2. **SDK built-ins — local files, code, and the web.** \`view\` (read a known file or
+   list a known directory), \`glob\` (discover paths by pattern), \`grep\` (search file
+   contents), \`web_fetch\` (fetch a URL). For the immediate children of an already-known
+   directory use \`view\`; use \`glob\` when the path itself must be discovered or matched.
    These are how a skill DISCOVERS inputs on the local OS instead of asking the user.
 3. **The device shell + installed CLIs (\`bash\`).** Scout runs on a real Mac or Windows
    machine, so when a service ships a first-class CLI, that CLI IS its native tool —
@@ -77,12 +133,15 @@ skill being installed.
 | Recording shows | Prefer |
 | --- | --- |
 | Searching / reading a Teams chat | \`workiq_search_chats\` → \`workiq_list_chat_messages\` |
+| Finding the user's self-chat, then sending to it | \`workiq_get_my_profile\` → \`workiq_search_chats\` or \`workiq_list_chats\` → \`workiq_send_chat_message\` (approval) |
 | Reading / searching Outlook mail | \`workiq_search_emails\` / \`workiq_list_emails\` / \`workiq_get_email\` |
 | Checking a calendar / free-busy | \`workiq_get_schedule\` / \`workiq_list_events\` |
 | Sending a message, email, or invite | \`workiq_send_chat_message\` / \`workiq_send_email\` / \`workiq_create_event\` (approval) |
-| Opening / reading a local file or folder | \`view\` / \`glob\` / \`grep\` |
+| Listing an already-known local folder | \`view\` |
+| Discovering local paths by name or pattern | \`glob\` |
+| Searching inside local files | \`grep\` |
 | Reading a public web page | \`web_fetch\` |
-| Acting on GitHub — issues, PRs, releases, repos, gists, Actions | the \`gh\` CLI via \`Bash(gh *)\` (\`gh issue\`, \`gh pr\`, \`gh release\`, \`gh api\`) — never the browser |
+| Acting on GitHub — issues, PRs, releases, repos, gists, Actions | the \`gh\` CLI via runtime tool \`bash\`, allowed by \`Bash(gh *)\` — never the browser |
 | Running git, cloud, or package operations | the matching CLI via the shell (\`git\`, \`az\`/\`aws\`/\`gcloud\`, \`npm\`, \`docker\`) |
 | Editing a spreadsheet / doc / deck | the \`xlsx\` / \`docx\` / \`pptx\` built-in skill |
 | Filling a form on a web app with no API or CLI | \`browser_navigate\` + \`browser_snapshot\` + \`browser_fill_form\`/\`browser_type\`/\`browser_click\` |
@@ -123,7 +182,7 @@ ${SCOUT_NATIVE_CAPABILITIES}
  * Authored by inspecting `~/projects/m` (electron/automations/*). Refresh when
  * Scout's automation model or native tools change.
  */
-export const SCOUT_AUTOMATION_CATALOGUE_VERSION = "2026-07-26";
+export const SCOUT_AUTOMATION_CATALOGUE_VERSION = "2026-08-08";
 
 const SCOUT_AUTOMATION_CATALOGUE = `
 # Target: Microsoft Scout — automation catalogue (built-ins only)

@@ -118,8 +118,9 @@ PE architecture and packaged native payloads.
 ## Known limitations
 
 - Browser URLs are best effort display strings, not the exact tab URL.
-- Terminal capture is not currently implemented; a recorded-terminal (PTY)
-  approach is tracked in issue #7.
+- The recorded terminal captures only the PowerShell session opened from Skill
+  Recorder's floating recording bar. It uses ConPTY and does not observe existing
+  PowerShell, Windows Terminal, or cmd.exe windows. The design is tracked in issue #5.
 - Semantic UI events (focus/invoke/value via UI Automation) are not implemented
   on either platform yet.
 - `onnxruntime-node` ships prebuilt binaries for `win32-x64` and

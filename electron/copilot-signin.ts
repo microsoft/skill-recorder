@@ -1,88 +1,88 @@
-import { execFileSync, spawn } from "node:child_process";
+import { dialog, shell, type BrowserWindow, type MessageBoxOptions } from "electron";
+import { CopilotClient } from "@github/copilot-sdk";
 
 import type { CopilotSignInResult } from "../common/ipc";
-import { resolveCopilotCliPath } from "./copilot-cli-path";
+import { copilotConnectionOption, resolveCopilotCliPath } from "./copilot-cli-path";
+import { verifyCopilotAuthentication } from "./copilot-signin-auth";
+import { SignInCoordinator, SignInError } from "./copilot-signin-flow";
+import { copilotSignInCommand, runCopilotLogin } from "./copilot-signin-process";
 import { createLogger } from "./logger";
+import { hasMicrosoftSignInHint } from "./microsoft-signin-hint";
 
 const log = createLogger("CopilotSignIn");
+const coordinator = new SignInCoordinator();
+const MICROSOFT_ENTERPRISE_URL = "https://github.com/enterprises/microsoft";
 
-/** POSIX single-quoting so a path with spaces survives the shell the terminal opens. */
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
+export function cancelCopilotSignIn(attemptId: string, owner: number): void {
+  coordinator.cancel(attemptId, owner);
 }
 
-/** The command that signs the user in — also shown in the UI as a manual fallback. */
-export function copilotSignInCommand(cliPath: string): string {
-  return process.platform === "win32" ? `"${cliPath}" login` : `${shellQuote(cliPath)} login`;
+export function disposeCopilotSignIn(): void {
+  coordinator.dispose();
 }
 
-const LINUX_TERMINALS = [
-  "x-terminal-emulator",
-  "gnome-terminal",
-  "konsole",
-  "xfce4-terminal",
-  "xterm",
-];
-
-function onPath(command: string): boolean {
-  try {
-    execFileSync("which", [command], { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Spawn a terminal and let it outlive the app; ENOENT arrives as an event, not a throw. */
-function launch(file: string, args: string[], verbatim = false): void {
-  const child = spawn(file, args, {
-    detached: true,
-    stdio: "ignore",
-    windowsHide: false,
-    windowsVerbatimArguments: verbatim,
-  });
-  child.on("error", (err) => log.warn("terminal failed to start:", err.message));
-  child.unref();
-}
-
-/**
- * Open a terminal window running `login` on the Copilot CLI that ships with the app.
- * Skill Recorder installs the CLI as a dependency, so telling users to run a global
- * `copilot` doesn't work — we hand them the bundled binary's full path instead.
- */
-export function openCopilotSignIn(): CopilotSignInResult {
+export async function openCopilotSignIn(
+  attemptId: string,
+  owner: number,
+  parent: BrowserWindow | null,
+): Promise<CopilotSignInResult> {
   const cliPath = resolveCopilotCliPath();
   if (!cliPath) {
     return {
       ok: false,
+      status: "failed",
       error: "Skill Recorder couldn't find its bundled GitHub Copilot CLI. Reinstall the app.",
     };
   }
-  const command = copilotSignInCommand(cliPath);
-  try {
-    if (process.platform === "win32") {
-      // `start` gives the CLI its own console. The doubled quotes are cmd's required
-      // form when the window title and the command are both quoted.
-      launch("cmd.exe", ["/c", `start "Sign in to GitHub Copilot" cmd.exe /k "${command}"`], true);
-    } else if (process.platform === "darwin") {
-      const script = `tell application "Terminal"\nactivate\ndo script ${JSON.stringify(command)}\nend tell`;
-      launch("osascript", ["-e", script]);
-    } else {
-      const terminal = LINUX_TERMINALS.find(onPath);
-      if (!terminal) {
-        return {
-          ok: false,
-          command,
-          error: "No terminal emulator was found. Run the command below yourself, then try again.",
-        };
+  const show = (options: MessageBoxOptions) =>
+    parent && !parent.isDestroyed()
+      ? dialog.showMessageBox(parent, options)
+      : dialog.showMessageBox(options);
+  const result = await coordinator.signIn(attemptId, owner, {
+    hasMicrosoftHint: hasMicrosoftSignInHint,
+    chooseAccount: async (signal) => {
+      const { response } = await show({
+        type: "question",
+        title: "Sign in to GitHub Copilot",
+        message: "Use Microsoft Enterprise SSO or a personal GitHub account?",
+        detail: "This Windows account or device appears to be associated with Microsoft. Microsoft sign-in has two steps: complete SSO in your browser, then authorize the GitHub Copilot app. When the Microsoft enterprise page appears, close that tab and return to Skill Recorder for step 2.",
+        buttons: ["Microsoft Enterprise SSO", "Personal GitHub account", "Cancel"],
+        defaultId: 0,
+        cancelId: 2,
+        noLink: true,
+        signal,
+      });
+      return response === 0 ? "microsoft" : response === 1 ? "personal" : "canceled";
+    },
+    prepareEnterprise: async (signal) => {
+      signal.throwIfAborted();
+      try {
+        await shell.openExternal(MICROSOFT_ENTERPRISE_URL);
+      } catch {
+        throw new SignInError("Could not open the enterprise sign-in page. Check your default browser and try again.");
       }
-      launch(terminal, ["-e", "sh", "-c", `${command}; exec sh`]);
-    }
-    log.info("opened a terminal for the bundled CLI's login command");
-    return { ok: true, command };
-  } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
-    log.warn("could not open a terminal:", error);
-    return { ok: false, command, error };
-  }
+      signal.throwIfAborted();
+      const { response } = await show({
+        type: "info",
+        title: "Microsoft Enterprise SSO",
+        message: "Step 1 of 2: Complete Microsoft SSO",
+        detail: "When SSO finishes on github.com/enterprises/microsoft, close that tab and return here. SSO alone does not authorize Copilot.\n\nChoose \"Authorize Copilot\" to open step 2. Use the same browser profile and Microsoft-linked GitHub account, then approve the GitHub Copilot app. No device code is needed.\n\nAfter authorization, close that tab and return to Skill Recorder. If GitHub says to return to your terminal, return here instead.",
+        buttons: ["Authorize Copilot", "Cancel"],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true,
+        signal,
+      });
+      return response === 0;
+    },
+    login: (signal) => runCopilotLogin(cliPath, signal),
+    verifyAuthentication: (signal) => verifyCopilotAuthentication(
+      () => new CopilotClient(copilotConnectionOption()), signal,
+    ),
+    manualCommand: copilotSignInCommand(cliPath),
+  });
+  // Do not record CLI output, account names, tenant metadata, or browser URLs.
+  if (result.ok) log.info("Copilot sign-in verified");
+  else if (result.status !== "canceled") log.warn("Copilot sign-in ended:", result.status);
+  return result;
 }

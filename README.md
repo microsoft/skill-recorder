@@ -2,8 +2,15 @@
 
 **Record yourself doing a task once, then turn it into a skill your AI agent can repeat.**
 
+> [!TIP]
+> **Want to install Skill Recorder? [Go to the latest release](https://github.com/microsoft/skill-recorder/releases/latest).**
+> Scroll to **Commit-pinned installation** and copy the complete command for your
+> operating system. It is ready to paste: you do not need to edit it or download
+> the source code yourself. [Step-by-step instructions below](#install-it).
+
 Skill Recorder captures a real work session on your screen: the clicks, the app and
-window switches, the pages you visit, and (if you want) your spoken narration. It then uses
+window switches, the pages you visit, commands/output from its optional recorded terminal,
+and (if you want) your spoken narration. It then uses
 the **GitHub Copilot CLI** to reconstruct *what you actually did* as a clear **intent plus
 an ordered list of steps**. From there, one step turns that single run into something an
 agent can reuse:
@@ -25,13 +32,20 @@ form can teach the agent to submit *all* of them.
 
 1. 🔴 **Record.** Hit record (or `⌘⇧R` / `Ctrl+Shift+R` from anywhere) and just do your
    task. Skill Recorder captures your screen and activity locally, in the background.
-2. 🎛️ **Control.** While recording, a small always-on-top bar shows capture and
-   microphone state. Mute, unmute, or switch mics on the fly, then finish, or discard
-   (with a confirmation) if the take didn't go to plan.
+2. 🎛️ **Control.** While recording, a small always-on-top bar shows capture,
+   microphone, and recorded-terminal state. Open the session-scoped terminal, mute,
+   unmute, or switch mics, then finish or discard with confirmation.
 3. 🧠 **Analyze.** Click Analyze and GitHub Copilot reconstructs one overall intent and
    an ordered list of steps. Review and edit until it reads right.
 4. ✨ **Create.** From an approved analysis, generate a reusable **Skill** and/or a
    scheduled **Automation**.
+
+For skills, **Review SKILL.md** optionally shows the complete, read-only file text
+(including frontmatter) before installation or export. Preparing a preview writes
+no skill files. Close and reopen it without regenerating; Add/Export from either
+surface uses that exact preview. Editing the plan discards the preview. You can
+still choose Add/Export directly without reviewing or adding a confirmation step.
+Review provides visibility into the generated instructions, not a security guarantee.
 
 ## Get started
 
@@ -46,39 +60,72 @@ macOS is the primary target. Windows 11 (x64 and ARM64) is supported too (see
 ### Install it
 
 Open the **[latest release](https://github.com/microsoft/skill-recorder/releases/latest)** and
-copy the command for your platform. Each release pins an exact commit, so the real command looks
-like the patterns below with `<40-character-release-commit>` filled in.
+follow these steps:
 
-**macOS / Ubuntu**
+1. On the release page, scroll to **Commit-pinned installation**. Find **Windows 11
+   x64 or ARM64** or **macOS or Ubuntu**, then copy the **entire command** in that
+   section using the copy button at the top-right of the code block.
+2. Open **PowerShell** from the Windows Start menu, or **Terminal** on macOS or
+   Ubuntu. Paste the command and press **Enter**.
+3. Keep that window open while installation completes. The installer downloads
+   what it needs, builds the app on your computer, creates shortcuts, and launches
+   Skill Recorder. The first installation can take several minutes.
 
-```bash
-commit="<40-character-release-commit>"; curl -fsSL "https://raw.githubusercontent.com/microsoft/skill-recorder/$commit/install.sh" | SKILL_RECORDER_COMMIT="$commit" bash
-```
+> [!IMPORTANT]
+> **Copy the command from the release page, not a template from the technical docs.**
+> The release command already contains the correct version identifier; there is
+> nothing to replace. Do not paste commands containing
+> `<40-character-release-commit>` literally.
+> You do **not** need Git, a separate Node.js installation, or the **Manual developer
+> setup** instructions. The **Source code (zip)** and **Source code (tar.gz)** links
+> under **Assets** are not app installers.
 
-The commit pins both the downloaded script and the source it builds. To keep the app running
-after the terminal closes, add `SKILL_RECORDER_DETACHED=1` after the pipe:
+To review the script before running it, follow the release page's
+**inspect-first instructions** instead. Installation remains subject to your
+organization's policies.
 
-```bash
-commit="<40-character-release-commit>"; curl -fsSL "https://raw.githubusercontent.com/microsoft/skill-recorder/$commit/install.sh" | SKILL_RECORDER_COMMIT="$commit" SKILL_RECORDER_DETACHED=1 bash
-```
-
-On macOS this adds a **Skill Recorder (Source)** app to `~/Applications` (relaunch from Spotlight,
-Launchpad, or the Dock). On Ubuntu it adds a matching application entry.
-
-**Windows (PowerShell)**
-
-```powershell
-$commit="<40-character-release-commit>"; $env:SKILL_RECORDER_COMMIT=$commit; irm "https://raw.githubusercontent.com/microsoft/skill-recorder/$commit/install.ps1" | iex
-```
-
-This adds **Skill Recorder (Source)** shortcuts to your desktop and Start Menu.
+**Open it again later:** use **Skill Recorder (Source)** on your Windows desktop or
+Start Menu; on macOS, find it in `~/Applications`, Spotlight, or Launchpad; on
+Ubuntu, use the matching application entry. You do not need to reinstall each time.
+Advanced options, including running in the background on macOS or Ubuntu, are in
+[`INSTALL.md`](INSTALL.md#commit-pinned-one-line-installation).
 
 ### Then record
 
 1. **Grant Screen Recording.** On first launch, macOS asks for Screen Recording permission;
    grant it and you're ready to record.
 2. **Record, Analyze, Create.** Do your task, then Analyze. The first time you Analyze,
-   Skill Recorder offers **Sign in to Copilot** if you aren't signed in yet.
+   Skill Recorder offers **Sign in to Copilot** if you aren't signed in yet. Finish
+   authorization in your browser; the app verifies sign-in and automatically retries
+   the interrupted analysis once. There is no login terminal window to close.
+   Canceling sign-in or leaving that analysis prevents the automatic retry.
+
+On Windows, a local Microsoft Entra tenant hint can offer a choice between
+**Microsoft Enterprise SSO** and a **Personal GitHub account**. This is only a
+routing hint, not proof of employment. Microsoft sign-in has two separate steps:
+finish SSO in the browser, then authorize the GitHub Copilot app. When SSO lands on
+`github.com/enterprises/microsoft`, close that tab, return to Skill Recorder, and
+choose **Authorize Copilot**. SSO alone does not authorize the app. Use the same
+browser profile and Microsoft-linked GitHub account for both steps.
+Without a hint, and on macOS/Linux,
+sign-in goes directly to the standard GitHub flow. No work-email prompt is required.
+
+The authorization step opens the default browser using the CLI's web OAuth flow,
+not a device code. Keeping the same browser profile lets GitHub reuse the session
+from SSO, so you can approve the GitHub Copilot app without entering a code.
+If GitHub asks you to sign in again, check that you are using the same browser profile.
+After authorization, close that tab and return to Skill Recorder; the app verifies
+access before continuing.
+
+Skill Recorder pins Copilot CLI 1.0.78, which supports web OAuth without a terminal,
+and runs `--no-auto-update login --web-flow` so sign-in does not depend on a
+different CLI version in the user's auto-update cache. Older bundled versions
+such as 1.0.71 do not support `--web-flow`.
+
+Sign-in can be canceled and times out after five minutes. If browser login fails,
+the app shows an error and a manual command for the bundled CLI (use PowerShell on
+Windows). After manual sign-in, retry the analysis yourself. Signing in from a skill
+or automation builder does not automatically repeat a build or installation.
 
 To inspect the script before running it, set install options, update, or uninstall, see
 [`INSTALL.md`](INSTALL.md).
@@ -96,9 +143,11 @@ To inspect the script before running it, set install options, update, or uninsta
 
 Recording, storage, frame extraction, and optional narration transcription all happen
 **on your computer**; nothing leaves while you record. Only when you choose **Analyze**
-does Skill Recorder send the event timeline (window/document titles, URLs, and clipboard
-previews), extracted screen images, and narration text to GitHub's cloud for Copilot to
-process.
+does Skill Recorder send the event timeline (window/document titles, URLs, clipboard
+previews, and terminal commands), extracted screen images, narration text, and bounded
+terminal-output excerpts requested during analysis to GitHub's cloud for Copilot to process.
+When protection is enabled, terminal commands and the complete local terminal transcript
+participate in the same on-device secret/PII scan before any requested excerpt is returned.
 
 The in-app "Records your screen and activity" panel spells out exactly what's collected:
 
@@ -109,12 +158,20 @@ The in-app "Records your screen and activity" panel spells out exactly what's co
 - **Clipboard:** short previews of copied text that tie steps together.
 - **Narration** *(optional)*: spoken commentary, transcribed **on-device** in any of
   Whisper's 99 supported languages (a one-time ~252 MB model download on first use).
+- **Recorded terminal** *(only when opened from the floating recording bar)*: command,
+  cwd, shell, exit status, duration, and the complete terminal output. The transcript
+  has no app-imposed size cap and counts toward the saved session's storage. It captures
+  only the app-owned terminal for that recording—there are no global hooks, profile
+  edits, background command monitors, or observation of existing terminals.
 
 > ⚠️ **Please don't capture secrets.** Passwords, access tokens, API keys, credentials, and
 > other confidential information should never be recorded, typed, pasted, shown, copied,
 > or narrated during a session.
 
 ## Develop from source
+
+**For developers changing the code, not for installing the app.** To use Skill
+Recorder, follow [Install it](#install-it) instead.
 
 Requires **Node.js 24**. After checking out a release revision:
 
@@ -137,6 +194,7 @@ The Copilot **describer** and **builders** have a fixture-based eval suite; see
 
 ```bash
 npm run eval            # score the describer against synthetic recordings
+npm run eval:terminal   # score indexed terminal-output use and redaction
 npm run eval:builder    # score the skill/automation generalization
 ```
 

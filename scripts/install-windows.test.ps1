@@ -7,6 +7,8 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+$npmCommand = Get-Command npm.cmd -CommandType Application -ErrorAction SilentlyContinue |
+  Select-Object -First 1
 
 $tokens = $null
 $parseErrors = $null
@@ -24,7 +26,10 @@ $helperNames = @(
   "ConvertTo-ExtendedLengthPath",
   "Move-DirectoryTree",
   "Remove-DirectoryTree",
-  "Resolve-MachineNpmConfigPath"
+  "Resolve-MachineNpmConfigPath",
+  "Get-SystemNpmGlobalConfigPath",
+  "Get-DefaultWindowsNpmConfigPaths",
+  "Get-MachineNpmConfigPath"
 )
 $functionDefinitions = @(
   $installerAst.FindAll(
@@ -80,6 +85,109 @@ try {
   $quoted = Resolve-MachineNpmConfigPath -CandidatePaths @(('"' + $machineNpmrc + '" '))
   if ($quoted -ne [IO.Path]::GetFullPath($machineNpmrc)) {
     throw "Resolve-MachineNpmConfigPath did not normalize a quoted npm path: $quoted"
+  }
+
+  # Isolate discovery from the test host's npm installation and configuration.
+  & {
+    $environmentNames = @(
+      "APPDATA", "ProgramW6432", "ProgramFiles", "ProgramFiles(x86)",
+      "NPM_CONFIG_GLOBALCONFIG", "NPM_CONFIG_PREFIX", "NPM_CONFIG_USERCONFIG",
+      "NPM_CONFIG_REGISTRY"
+    )
+    $savedEnvironment = @{}
+    foreach ($name in $environmentNames) {
+      $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+      [Environment]::SetEnvironmentVariable($name, $null, "Process")
+    }
+    function Get-Command { return $null }
+    try {
+      $env:APPDATA = Join-Path $npmConfigRoot "appdata"
+      $env:ProgramW6432 = Join-Path $npmConfigRoot "native-program-files"
+      $env:ProgramFiles = Join-Path $npmConfigRoot "program-files"
+      ${env:ProgramFiles(x86)} = Join-Path $npmConfigRoot "x86-program-files"
+
+      if ($null -ne (Get-SystemNpmGlobalConfigPath)) {
+        throw "Discovery unexpectedly found npm on the clean-machine fixture."
+      }
+      if ($null -ne (Get-MachineNpmConfigPath)) {
+        throw "A clean noncorporate machine must retain npm's default registry."
+      }
+
+      $paths = @(Get-DefaultWindowsNpmConfigPaths)
+      if ($paths.Count -ne 4) {
+        throw "Expected the user, native, current, and x86 global config locations."
+      }
+      # Create the lowest-priority files first to exercise every fallback.
+      for ($index = $paths.Count - 1; $index -ge 0; $index--) {
+        $path = $paths[$index]
+        New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force | Out-Null
+        Set-Content -LiteralPath $path -Value "registry=https://example.invalid/npm/" -Encoding ASCII
+        if ((Get-MachineNpmConfigPath) -ne $path) {
+          throw "npm-free discovery did not select $path."
+        }
+      }
+
+      $env:NPM_CONFIG_PREFIX = Join-Path $npmConfigRoot "explicit-prefix"
+      if ($null -ne (Get-MachineNpmConfigPath)) {
+        throw "A caller's empty prefix must not pick up another installation's settings."
+      }
+      $prefixConfig = Join-Path $env:NPM_CONFIG_PREFIX "etc\npmrc"
+      New-Item -ItemType Directory -Path (Split-Path -Parent $prefixConfig) -Force | Out-Null
+      Set-Content -LiteralPath $prefixConfig -Value "registry=https://example.invalid/custom/" -Encoding ASCII
+      if ((Get-MachineNpmConfigPath) -ne $prefixConfig) {
+        throw "The explicit npm prefix was not honored without npm."
+      }
+      $env:NPM_CONFIG_PREFIX = $null
+
+      foreach ($explicitConfig in @($machineNpmrc, $missingNpmrc)) {
+        $env:NPM_CONFIG_GLOBALCONFIG = $explicitConfig
+        if ($null -ne (Get-MachineNpmConfigPath)) {
+          throw "Discovery must leave explicit globalconfig to npm, even if missing."
+        }
+        if ($env:NPM_CONFIG_GLOBALCONFIG -ne $explicitConfig) {
+          throw "Discovery modified the caller's globalconfig."
+        }
+      }
+      $env:NPM_CONFIG_GLOBALCONFIG = $null
+
+      function Get-SystemNpmGlobalConfigPath { return $machineNpmrc }
+      if ((Get-MachineNpmConfigPath) -ne $machineNpmrc) {
+        throw "The system npm's reported global configuration must take precedence."
+      }
+
+      if ($npmCommand) {
+        $env:NPM_CONFIG_GLOBALCONFIG = Get-MachineNpmConfigPath
+        $env:NPM_CONFIG_USERCONFIG = Join-Path $npmConfigRoot "user.npmrc"
+        $originalHash = (Get-FileHash -LiteralPath $machineNpmrc).Hash
+        Push-Location $npmConfigRoot
+        try {
+          function Assert-NpmRegistry {
+            param([string]$Expected)
+            $actual = @(& $npmCommand.Source config get registry 2>$null)
+            if ($LASTEXITCODE -ne 0 -or $actual.Count -ne 1 -or $actual[0] -ne $Expected) {
+              throw "npm did not honor the expected registry precedence."
+            }
+          }
+          Assert-NpmRegistry "https://example.invalid/npm/"
+          Set-Content -LiteralPath $env:NPM_CONFIG_USERCONFIG `
+            -Value "registry=https://example.invalid/user/" -Encoding ASCII
+          Assert-NpmRegistry "https://example.invalid/user/"
+          $env:NPM_CONFIG_REGISTRY = "https://example.invalid/environment/"
+          Assert-NpmRegistry "https://example.invalid/environment/"
+          if ((Get-FileHash -LiteralPath $machineNpmrc).Hash -ne $originalHash) {
+            throw "Reading npm settings modified the managed global configuration."
+          }
+        } finally {
+          Pop-Location
+        }
+      } else {
+        Write-Warning "npm is unavailable; skipping the real-npm precedence check (npm-free discovery was tested)."
+      }
+    } finally {
+      foreach ($name in $environmentNames) {
+        [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], "Process")
+      }
+    }
   }
 } finally {
   Remove-Item -LiteralPath $npmConfigRoot -Recurse -Force
@@ -145,7 +253,8 @@ try {
 )
 try {
   [IO.File]::WriteAllText('$escapedReadyFile', 'ready')
-  Start-Sleep -Milliseconds 500
+  # Avoid cold cmdlet discovery extending the lock beyond the retry window.
+  [Threading.Thread]::Sleep(500)
 } finally {
   `$stream.Dispose()
 }

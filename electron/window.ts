@@ -84,6 +84,7 @@ export function createRecordingControlsWindow(): BrowserWindow {
     const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
     bounds = initialRecordingControlsBounds(display.workArea);
   }
+
   const win = new BrowserWindow({
     ...bounds,
     show: false,
@@ -119,6 +120,34 @@ export function createRecordingControlsWindow(): BrowserWindow {
   win.on("resize", rememberPosition);
   rememberPosition();
   loadRoute(win, "recording-controls");
+  return win;
+}
+
+/** Resizable app-owned terminal; the PTY remains in the main process. */
+export function createTerminalWindow(): BrowserWindow {
+  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  const width = Math.min(960, Math.max(640, display.workArea.width - 80));
+  const height = Math.min(640, Math.max(420, display.workArea.height - 100));
+  const win = new BrowserWindow({
+    width,
+    height,
+    minWidth: 560,
+    minHeight: 360,
+    show: false,
+    title: "Skill Recorder: Recorded terminal",
+    icon: windowIcon(),
+    backgroundColor: "#211f1e",
+    webPreferences: {
+      preload: path.join(dirname, "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      backgroundThrottling: false,
+    },
+  });
+  registerDevelopmentDevToolsShortcut(win);
+  win.setContentProtection(true);
+  loadRoute(win, "terminal");
   return win;
 }
 

@@ -6,9 +6,9 @@ export interface WindowBounds {
 }
 
 export const RECORDING_CONTROLS_SIZE = {
-  width: 468,
+  width: 560,
   collapsedHeight: 76,
-  expandedHeight: 232,
+  expandedHeight: 250,
   margin: 18,
 } as const;
 

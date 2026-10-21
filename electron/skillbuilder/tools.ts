@@ -7,6 +7,7 @@ import {
   type SkillPlan,
   type SkillSubmission,
 } from "../../common/skill";
+import { validatePlanTooling } from "./plan-tools";
 
 /** Everything the builder's skill-specific tools are bound to for one session. */
 export interface SkillToolContext {
@@ -33,7 +34,7 @@ export function createSkillBuilderTools(ctx: SkillToolContext): Tool[] {
   const proposePlan: Tool = {
     name: "propose_plan",
     description:
-      "Propose your reviewable plan for the skill: how you'll generalize the task, the fixed values it hard-codes (each a small id + human name + the literal, referenced from the steps by a {{id}} token), the ordered steps (each with a short title, a description, and the native tool it uses), and the allowed-tools. Call this once per turn, then STOP so the user can review or refine it. Do NOT write the skill body yet.",
+      "Propose your reviewable plan for the skill: how you'll generalize the task, the fixed values it hard-codes (each a small id + human name + the literal, referenced from the steps by a {{id}} token), the ordered steps (each with a short title, a description, and every concrete native tool it uses in call order), and the allowed-tools. Call this once per turn, then STOP so the user can review or refine it. Do NOT write the skill body yet.",
     parameters: {
       type: "object",
       properties: {
@@ -94,13 +95,14 @@ export function createSkillBuilderTools(ctx: SkillToolContext): Tool[] {
                 description:
                   "Imperative, generalized description of the step. Reference any fixed value by its {{id}} token instead of writing the literal (e.g. \"open {{backlog_url}} and read the table\").",
               },
-              tool: {
-                type: "string",
+              tools: {
+                type: "array",
+                items: { type: "string" },
                 description:
-                  "The native tool/skill this step uses, e.g. \"workiq_search_chats\" or \"Bash(gh *)\".",
+                  "Every concrete runtime tool/skill this step calls, in order, e.g. [\"workiq_get_my_profile\", \"workiq_search_chats\"] or [\"bash\"]. Use lowercase runtime identifiers here; permission patterns belong only in allowedTools.",
               },
             },
-            required: ["kind", "title", "text"],
+            required: ["kind", "title", "text", "tools"],
             additionalProperties: false,
           },
         },
@@ -121,6 +123,15 @@ export function createSkillBuilderTools(ctx: SkillToolContext): Tool[] {
           textResultForLlm:
             "propose_plan rejected — the payload did not match the schema. Fix these and call again:\n" +
             parsed.error.issues.map((i) => `- ${i.path.join(".") || "(root)"}: ${i.message}`).join("\n"),
+          resultType: "failure",
+        };
+      }
+      const toolingIssues = validatePlanTooling(parsed.data);
+      if (toolingIssues.length) {
+        return {
+          textResultForLlm:
+            "propose_plan rejected — fix the runtime tool identifiers and allowed-tools:\n" +
+            toolingIssues.map((issue) => `- ${issue}`).join("\n"),
           resultType: "failure",
         };
       }

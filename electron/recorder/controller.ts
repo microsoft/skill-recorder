@@ -4,6 +4,7 @@ import { app } from "electron";
 
 import type { CaptureConfig } from "../../common/config";
 import { EventType } from "../../common/events";
+import type { TerminalCommandPayload } from "../../common/events";
 import type {
   DiscardResult,
   MarkerResult,
@@ -81,6 +82,10 @@ export interface RecorderDeps {
   deleteSession?: (sessionId: string) => Promise<void>;
   /** Optional best-effort post-processing (frames + correlation) after save. */
   postProcess?: (sessionDir: string) => Promise<void>;
+  /** Current recorded-terminal activity, used to guard stop/discard. */
+  terminalBusy?: () => { busy: boolean; command: string | null };
+  /** Flush and close the recorded terminal before the event stream is finalized. */
+  finishTerminal?: () => Promise<void>;
 }
 
 type FinishIntent = "save" | "discard";
@@ -125,6 +130,23 @@ export class RecorderController {
   /** The last completed session's directory, if any (for analysis). */
   lastSessionDir(): string | null {
     return this.lastCompleted?.dir ?? null;
+  }
+
+  activeSession(): { id: string; dir: string; startedAt: number } | null {
+    const store = this.store;
+    return store
+      ? { id: store.meta.id, dir: store.dir, startedAt: store.meta.startedAt }
+      : null;
+  }
+
+  recordTerminalCommand(payload: TerminalCommandPayload): boolean {
+    if (!this.store) return false;
+    this.bus.publish({
+      type: EventType.TerminalCommand,
+      source: "recorded-terminal",
+      payload,
+    });
+    return true;
   }
 
   /**
@@ -176,12 +198,12 @@ export class RecorderController {
     );
   }
 
-  stop(): Promise<StopResult> {
-    return this.enqueue(() => this.finish("save"));
+  stop(forceTerminal = false): Promise<StopResult> {
+    return this.enqueue(() => this.finish("save", forceTerminal));
   }
 
-  discard(): Promise<DiscardResult> {
-    return this.enqueue(() => this.finish("discard"));
+  discard(forceTerminal = false): Promise<DiscardResult> {
+    return this.enqueue(() => this.finish("discard", forceTerminal));
   }
 
   setMicrophoneEnabled(
@@ -485,10 +507,22 @@ export class RecorderController {
     }
   }
 
-  private async finish(intent: FinishIntent): Promise<FinishResult> {
+  private async finish(
+    intent: FinishIntent,
+    forceTerminal = false,
+  ): Promise<FinishResult> {
     const store = this.store;
     if (!store) return { ok: false, error: "Not recording" };
+    const terminal = this.deps.terminalBusy?.();
+    if (terminal?.busy && !forceTerminal) {
+      return {
+        ok: false,
+        requiresTerminalConfirmation: true,
+        terminalCommand: terminal.command ?? undefined,
+      };
+    }
 
+    const previousMicrophone = this.microphone;
     this.transition = intent === "save" ? "stopping" : "discarding";
     if (this.microphone.state !== "off") {
       this.microphone = {
@@ -499,7 +533,24 @@ export class RecorderController {
     }
     this.emit();
 
-    // Stop producers before finalizing the event stream. Audio is flushed before
+    // Stop producers before finalizing the event stream. The terminal goes first
+    // so its final command event can still be persisted to the attached event bus.
+    if (this.deps.finishTerminal) {
+      try {
+        await this.deps.finishTerminal();
+      } catch (error) {
+        const terminalError = error instanceof Error ? error.message : String(error);
+        this.transition = "none";
+        this.microphone = previousMicrophone;
+        this.emit();
+        log.warn("terminal stop failed:", terminalError);
+        return {
+          ok: false,
+          error: `Could not finalize the recorded terminal: ${terminalError}`,
+        };
+      }
+    }
+    // Audio is flushed before
     // video so the mic-off boundary is anchored as close as possible to the click.
     try {
       await this.host.stopAll();

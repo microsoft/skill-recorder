@@ -53,7 +53,10 @@ Inspect:
 
 The committed lockfile must use canonical `registry.npmjs.org` resolved URLs.
 Microsoft contributors may fetch through a configured internal mirror, but
-internal feed URLs must never be committed. Review every new dependency install
+internal feed URLs must never be committed to the lockfile or contributor
+configuration. The Windows installer's narrowly gated Microsoft recovery endpoint
+is an explicitly approved exception in implementation code only; do not copy it
+into README examples or installation commands. Review every new dependency install
 script before adding an exact-version approval; explicitly deny scripts that
 are not required.
 

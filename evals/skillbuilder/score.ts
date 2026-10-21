@@ -26,9 +26,9 @@ export interface SkillScoreResult {
 const has = (haystack: string, needle: string): boolean =>
   haystack.toLowerCase().includes(needle.toLowerCase());
 
-/** All the text a native-tool check looks at: every step's text + tool, plus allowed-tools. */
+/** All the text a native-tool check looks at: every step's text + tools, plus allowed-tools. */
 function toolText(plan: SkillPlan): string {
-  const steps = plan.steps.map((s) => `${s.text} ${s.tool}`).join("\n");
+  const steps = plan.steps.map((s) => `${s.text} ${s.tools.join(" ")}`).join("\n");
   return `${steps}\n${plan.allowedTools.join(" ")}`;
 }
 

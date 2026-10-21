@@ -127,7 +127,7 @@ function printResult(r: Result): void {
     console.error(`   value · {{${val.id}}} ${val.name}${val.value ? ` = ${val.value}` : ""}`);
   }
   for (const [i, s] of (r.plan?.steps ?? []).entries()) {
-    const tool = s.tool ? ` {${s.tool}}` : "";
+    const tool = s.tools.length ? ` {${s.tools.join(" → ")}}` : "";
     console.error(`   ${i + 1}. [${s.kind}] ${s.text}${tool}`);
   }
   console.error(`   score: ${Math.round((r.score?.score ?? 0) * 100)}% · ${r.ok ? "PASS" : "FAIL"} · ${(r.durationMs / 1000).toFixed(1)}s`);

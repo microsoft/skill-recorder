@@ -5,7 +5,6 @@ import { buildBundle } from "../common/bundle";
 import { MEANINGFUL_EVENT_TYPES } from "../common/correlation";
 import type { CorrelationResult } from "../common/correlation";
 import { renderDescription } from "../common/describe";
-import { CAPTURED_FRAME_MANIFEST_VERSION } from "../common/frames";
 import type { SessionMeta } from "../common/types";
 import { CorrelationEngine, readEvents } from "./frames/correlate";
 import { FrameExtractor } from "./frames/extractor";
@@ -26,11 +25,11 @@ function readMeta(sessionDir: string): SessionMeta | null {
 }
 
 /**
- * Opportunistic video stage: if a video was recorded, grab one frame at each
+ * Opportunistic frame stage: if source snapshots were captured, grab one at each
  * meaningful non-video event and correlate. We deliberately DO NOT scan the whole
- * video — events are the primary signal; anything they miss is surfaced as probe
+ * recording — events are the primary signal; anything they miss is surfaced as probe
  * *suggestions* and harvested later, only where confidence is low. Best-effort:
- * returns null when there's no usable video.
+ * returns null when there are no usable captured frames.
  */
 async function runFrameStage(sessionDir: string): Promise<CorrelationResult | null> {
   const videoJsonPath = path.join(sessionDir, "video.json");
@@ -44,21 +43,14 @@ async function runFrameStage(sessionDir: string): Promise<CorrelationResult | nu
     return null;
   }
 
-  const videoPath = path.join(sessionDir, video.file);
-  const capturedFramesPath = video.framesFile
-    ? path.join(sessionDir, video.framesFile)
-    : undefined;
-  const hasVideo = existsSync(videoPath);
-  const hasCapturedFrames = Boolean(capturedFramesPath && existsSync(capturedFramesPath));
-  if (!hasVideo && !hasCapturedFrames) {
-    log.warn("video and captured frames missing; skipping frame stage");
+  const capturedFramesPath = video.framesFile && path.join(sessionDir, video.framesFile);
+  if (!capturedFramesPath || !existsSync(capturedFramesPath)) {
+    log.warn("captured frames missing; skipping frame stage");
     return null;
   }
 
   const extractor = new FrameExtractor({
-    ...(hasVideo ? { videoPath } : {}),
-    ...(hasCapturedFrames ? { capturedFramesPath } : {}),
-    capturedFramesExpected: video.framesVersion === CAPTURED_FRAME_MANIFEST_VERSION,
+    capturedFramesPath,
     framesDir: path.join(sessionDir, "frames"),
     anchorEpochMs: video.startEpoch,
     durationSec: video.durationMs > 0 ? video.durationMs / 1000 : undefined,
@@ -85,7 +77,7 @@ async function runFrameStage(sessionDir: string): Promise<CorrelationResult | nu
 /**
  * Post-stop processing for a completed session. Always produces `bundle.json`
  * (segmented steps) and `description.md` (baseline narrative) from the primary
- * event stream; enriches them with correlated frames when a video is present.
+ * event stream; enriches them with correlated captured frames when available.
  * Strictly best-effort — never throws into the recorder.
  */
 export async function processSession(sessionDir: string): Promise<void> {

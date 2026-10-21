@@ -329,6 +329,12 @@ function Get-SystemNpmGlobalConfigPath {
 }
 
 function Get-MachineNpmConfigPath {
+  # Explicit caller configuration is already understood by portable npm. Never
+  # replace it, including a missing file that npm itself must handle.
+  if (-not [string]::IsNullOrWhiteSpace($env:NPM_CONFIG_GLOBALCONFIG)) {
+    return $null
+  }
+
   # The portable Node.js archive ships no builtin npmrc, so npm resolves its
   # global config inside the throwaway runtime directory and silently ignores a
   # registry configured for this machine. Point npm back at the real file so
@@ -339,11 +345,30 @@ function Get-MachineNpmConfigPath {
   if (-not [string]::IsNullOrWhiteSpace($reported)) {
     $candidates.Add($reported)
   }
-  if (-not [string]::IsNullOrWhiteSpace($env:APPDATA)) {
-    $candidates.Add((Join-Path $env:APPDATA "npm\etc\npmrc"))
+  if (-not [string]::IsNullOrWhiteSpace($env:NPM_CONFIG_PREFIX)) {
+    $candidates.Add((Join-Path $env:NPM_CONFIG_PREFIX "etc\npmrc"))
+    # An explicit prefix must not inherit another installation's global config.
+    return Resolve-MachineNpmConfigPath -CandidatePaths $candidates.ToArray()
+  }
+
+  foreach ($candidate in (Get-DefaultWindowsNpmConfigPaths)) {
+    $candidates.Add($candidate)
   }
 
   return Resolve-MachineNpmConfigPath -CandidatePaths $candidates.ToArray()
+}
+
+function Get-DefaultWindowsNpmConfigPaths {
+  # Managed settings may exist at a standard prefix before npm is installed or
+  # available on PATH. Probe files, not an executable or a corporate endpoint.
+  if (-not [string]::IsNullOrWhiteSpace($env:APPDATA)) {
+    Join-Path $env:APPDATA "npm\etc\npmrc"
+  }
+  foreach ($programFiles in @($env:ProgramW6432, $env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+    if (-not [string]::IsNullOrWhiteSpace($programFiles)) {
+      Join-Path $programFiles "nodejs\etc\npmrc"
+    }
+  }
 }
 
 function Get-WindowsArchitecture {
@@ -672,6 +697,8 @@ if (Test-Path -LiteralPath $sourceDirectory -PathType Container) {
       "package.json",
       "package-lock.json",
       "scripts\check-lockfile-portability.mjs",
+      "scripts\install-windows-dependencies.mjs",
+      "common\microsoft-signin-hint.ts",
       "scripts\install-reviewed-electron.mjs",
       "scripts\run-reviewed-electron.mjs"
     )
@@ -732,23 +759,22 @@ if (Test-Path -LiteralPath $sourceDirectory -PathType Container) {
 
       try {
         Invoke-CheckedCommand `
-          -FilePath $runtime.Npm `
+          -FilePath $runtime.Node `
           -Arguments @(
-            "ci",
-            "--no-audit",
-            "--no-fund",
-            "--ignore-scripts=false",
-            "--dangerously-allow-all-scripts=false",
-            "--strict-allow-scripts"
+            "scripts\install-windows-dependencies.mjs",
+            (Join-Path $runtime.Root "node_modules\npm\bin\npm-cli.js")
           ) `
           -Description "npm ci"
       } catch {
+        $configureRegistry = "& '$($runtime.Npm.Replace("'", "''"))' config set registry '<approved-registry-url>' --location=user"
         throw (
           "$($_.Exception.Message) Dependencies were requested from $effectiveRegistry. " +
-          "If your network blocks that registry, configure a compatible mirror for this " +
-          "machine with 'npm config set registry <url> --location=global' and run the " +
-          "installer again. The lockfile's integrity hashes are verified whichever " +
-          "registry serves the packages."
+          "If your network blocks that registry, complete your organization's package-feed " +
+          "provisioning and run the installer again. To configure an approved mirror manually, " +
+          "use the bundled npm (no global npm installation is required): $configureRegistry . " +
+          "Replace the placeholder with your organization's approved URL and complete any " +
+          "required feed authentication. The lockfile's integrity hashes are verified " +
+          "whichever registry serves the packages."
         )
       }
 

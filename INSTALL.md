@@ -1,5 +1,16 @@
 # Installing Skill Recorder from source
 
+> [!TIP]
+> **Just want to install and use the app? [Go to the latest release](https://github.com/microsoft/skill-recorder/releases/latest).**
+> Scroll to **Commit-pinned installation** and copy the complete command for your
+> operating system. Paste it into **PowerShell** on Windows or **Terminal** on
+> macOS or Ubuntu, then press **Enter**. No changes to the command are needed.
+> See the [step-by-step guide](README.md#install-it) for more help.
+
+This page is the **advanced installation reference**, including script inspection,
+configuration, and manual developer setup. The commands below are templates, not
+ready-to-run release commands.
+
 Skill Recorder can run directly from an exact source revision on Windows, macOS,
 or Ubuntu. These methods do not download a prebuilt Skill Recorder application.
 Node.js, Electron, native dependencies, and the GitHub Copilot CLI are obtained
@@ -14,7 +25,10 @@ compliance bundle.
 ## Commit-pinned one-line installation
 
 Replace `<40-character-release-commit>` with the full 40-character commit SHA
-published for the release.
+published for the release. Do not run a command with that placeholder still in it:
+it is not a real version and the download will fail. For a command with the correct
+value already filled in, use the
+[latest release](https://github.com/microsoft/skill-recorder/releases/latest).
 
 ### Windows 11 x64 or ARM64
 
@@ -164,6 +178,14 @@ installed revision.
 
 ## Manual developer setup
 
+> [!IMPORTANT]
+> **This section is for developers who want to work on the code. It is not required
+> to install or use Skill Recorder.** Use the ready-to-run command on the
+> [release page](https://github.com/microsoft/skill-recorder/releases/latest) instead.
+> If you continue below, replace `<40-character-release-commit>` with the release's
+> actual full commit SHA before running any commands. Pasting the placeholder
+> literally causes a **404 Not Found** error and the remaining steps cannot work.
+
 Install Node.js 24.19 or newer within the Node.js 24 release line from its
 official publisher. This supplies npm 11.17 or newer, which is required to
 enforce the reviewed dependency lifecycle-script policy. Download the exact
@@ -252,14 +274,40 @@ so that `replace-registry-host` maps the lockfile's canonical npmjs URLs onto th
 configured mirror. Machines with no npm configuration are unaffected and continue
 to use `registry.npmjs.org`.
 
-Configure a mirror once with:
+On Windows, this discovery does not require Node.js or npm to be installed.
+The installer preserves an explicit `NPM_CONFIG_GLOBALCONFIG`; otherwise it
+checks the system npm's reported global configuration, an explicit
+`NPM_CONFIG_PREFIX` (`etc\npmrc` beneath that prefix), or the standard locations:
+`%APPDATA%\npm\etc\npmrc`, then `nodejs\etc\npmrc` beneath the native, current,
+and x86 Program Files directories. This includes managed configuration placed
+in those locations before npm is available on PATH. Existing user `.npmrc`
+and npm environment settings retain npm's normal precedence. The installer
+does not modify these files.
+
+This reads locally available settings; it does not trigger an Intune/device-policy
+sync. On an unconfigured Windows machine, a public-registry network failure can
+trigger one Microsoft-specific recovery attempt if local device/account metadata
+provides a Microsoft Entra tenant hint. This is only a routing hint, not
+authorization. The installer announces the retry, applies the registry only to
+the retry process, and preserves lockfile integrity and script approvals. It
+never changes saved settings or weakens TLS verification. Explicit npm
+configuration, other organizations, and non-network failures do not trigger this
+fallback. If recovery is unavailable or fails, the installer stops with guidance
+for your organization's approved package-feed provisioning.
+
+If npm is already on PATH, configure a mirror once with:
 
 ```sh
 npm config set registry <url> --location=global
 ```
 
-The installers never pin or override the registry themselves; they only make the
-machine's existing npm configuration visible to the portable runtime. The
+If npm is not installed globally, the Windows installer's dependency-error
+message includes a command using the exact path to its downloaded npm. That
+command sets the approved registry in your user configuration; substitute the
+URL supplied by your organization and follow its feed-authentication instructions.
+
+The installers preserve existing npm configuration. The Windows recovery path
+above is limited to an otherwise unconfigured public-registry failure. The
 lockfile's integrity hashes are verified whichever registry serves the packages,
 so a mirror cannot substitute different content.
 

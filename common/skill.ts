@@ -26,16 +26,26 @@ export const PlanStepKind = z.enum(["calculation", "action"]);
 export type PlanStepKind = z.infer<typeof PlanStepKind>;
 
 export const PlanStepSchema = z.preprocess(
-  // Earlier plans stored steps as bare strings; surface those as (visible) actions.
-  (v) => (typeof v === "string" ? { kind: "action", text: v } : v),
+  (value) => {
+    // Earlier plans stored steps as bare strings or one `tool` string.
+    if (typeof value === "string") return { kind: "action", text: value };
+    if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+    const step = value as Record<string, unknown>;
+    if (Array.isArray(step.tools)) return step;
+    const legacyTool = typeof step.tool === "string" ? step.tool.trim() : "";
+    return { ...step, tools: legacyTool ? [legacyTool] : [] };
+  },
   z.object({
     kind: PlanStepKind,
     /** Short title/label for the step, e.g. "List open PRs". */
     title: z.string().default(""),
     /** Imperative, generalized description of the step. */
     text: z.string(),
-    /** The native tool/skill this step uses, if any (e.g. "workiq_search_chats"). */
-    tool: z.string().default(""),
+    /** Concrete native tools/skills this step uses, in execution order. */
+    tools: z
+      .array(z.string())
+      .default([])
+      .transform((tools) => [...new Set(tools.map((tool) => tool.trim()).filter(Boolean))]),
   }),
 );
 export type PlanStep = z.infer<typeof PlanStepSchema>;

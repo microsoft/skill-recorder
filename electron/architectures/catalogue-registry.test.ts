@@ -183,16 +183,16 @@ test("real providers preserve versions, content, and the support matrix", () => 
   // These hashes prove catalogue moves are byte-for-byte. Intentional catalogue
   // changes must bump the corresponding version and update its hash here.
   const scoutSkill = registry.requireCatalogue("scout", "skill");
-  assert.equal(scoutSkill.version, "2026-07-26");
+  assert.equal(scoutSkill.version, "2026-08-08");
   assert.equal(
     sha256(scoutSkill.content),
-    "2621869fe246edf1244a528824853ab5bc455811442d26c24485e48e1c2e30a7",
+    "36d61c25c960b12528f86c32ef3a99d0b7283a27538a334cc2c5191c269eed06",
   );
   const scoutAutomation = registry.requireCatalogue("scout", "automation");
-  assert.equal(scoutAutomation.version, "2026-07-26");
+  assert.equal(scoutAutomation.version, "2026-08-08");
   assert.equal(
     sha256(scoutAutomation.content),
-    "0fbad5a4324b270bcec5a1c8eb21c4584991093beb5802e9af99caefeb4bd475",
+    "27b8e3153085cac9b8d3e255eac256d0b215819784519026837797d6a02872a0",
   );
 
   const coworkSkill = registry.requireCatalogue("cowork", "skill");

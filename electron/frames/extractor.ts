@@ -1,10 +1,8 @@
-import { execFile, execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { copyFile, unlink } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { promisify } from "node:util";
 
 import {
   CAPTURED_FRAME_MANIFEST_VERSION,
@@ -16,7 +14,6 @@ import { createLogger } from "../logger";
 
 const log = createLogger("Frames");
 const require = createRequire(import.meta.url);
-const execFileAsync = promisify(execFile);
 
 type Sharp = (typeof import("sharp"))["default"];
 let sharpMod: Sharp | null | undefined;
@@ -37,12 +34,8 @@ interface SourceFrame extends CapturedVideoFrame {
 }
 
 export interface ExtractorOptions {
-  /** Retained for pre-change recordings that need a system-FFmpeg fallback. */
-  videoPath?: string;
   /** Absolute path to the versioned source-frame manifest. */
   capturedFramesPath?: string;
-  /** Suppress the system-FFmpeg legacy path for current recordings with no snapshots. */
-  capturedFramesExpected?: boolean;
   framesDir: string;
   /** `video.json` startEpoch — the wall-clock anchor for offset↔epoch mapping. */
   anchorEpochMs: number;
@@ -128,12 +121,10 @@ export function sampleCapturedFrames<T extends CapturedVideoFrame>(
 
 /**
  * Extracts sparse, visually distinct JPEGs from the snapshots captured alongside
- * the WebM. Pre-change sessions can still use a user-installed FFmpeg, but the
- * application no longer downloads or distributes any FFmpeg binary.
+ * the WebM.
  */
 export class FrameExtractor {
   private readonly opts: {
-    videoPath?: string;
     capturedFramesPath?: string;
     framesDir: string;
     anchorEpochMs: number;
@@ -144,9 +135,7 @@ export class FrameExtractor {
   };
   private readonly manifestPath: string;
   private readonly sourceFrames: SourceFrame[];
-  private readonly usesCapturedFramePipeline: boolean;
   private frames: FrameRecord[] = [];
-  private warnedLegacy = false;
 
   constructor(opts: ExtractorOptions) {
     this.opts = {
@@ -156,9 +145,6 @@ export class FrameExtractor {
       frameGridSec: opts.frameGridSec ?? DEFAULTS.frameGridSec,
     };
     this.manifestPath = path.join(opts.framesDir, "frames.json");
-    this.usesCapturedFramePipeline =
-      opts.capturedFramesExpected === true ||
-      Boolean(opts.capturedFramesPath && existsSync(opts.capturedFramesPath));
     this.sourceFrames = loadSourceFrames(opts.capturedFramesPath);
     if (existsSync(this.manifestPath)) {
       this.frames = loadRetainedFrames(this.manifestPath);
@@ -193,17 +179,12 @@ export class FrameExtractor {
       if (seen.has(cell)) continue;
       seen.add(cell);
       try {
-        const record =
-          this.sourceFrames.length > 0
-            ? await this.extractCapturedAt(
-                event.tMs,
-                source,
-                event.reason,
-                seenCapturedFiles,
-              )
-            : this.usesCapturedFramePipeline
-              ? null
-              : await this.extractLegacySingle(offsetSec, source, event.reason);
+        const record = await this.extractCapturedAt(
+          event.tMs,
+          source,
+          event.reason,
+          seenCapturedFiles,
+        );
         if (record) added.push(record);
       } catch (err) {
         log.warn(`frame extraction at ${offsetSec.toFixed(2)}s failed:`, message(err));
@@ -214,9 +195,7 @@ export class FrameExtractor {
   }
 
   async extractWindow(req: WindowRequest): Promise<FrameRecord[]> {
-    if (this.sourceFrames.length === 0) {
-      return this.usesCapturedFramePipeline ? [] : this.extractLegacyWindow(req);
-    }
+    if (this.sourceFrames.length === 0) return [];
 
     const startMs = Math.max(this.opts.anchorEpochMs, req.startMs);
     const endMs = Math.max(startMs, req.endMs);
@@ -325,102 +304,6 @@ export class FrameExtractor {
       .jpeg({ quality: 88 })
       .toFile(output);
     return true;
-  }
-
-  private async extractLegacyWindow(req: WindowRequest): Promise<FrameRecord[]> {
-    const ffmpegPath = this.legacyFfmpegPath();
-    const videoPath = this.opts.videoPath;
-    if (!ffmpegPath || !videoPath) return [];
-
-    const fps = req.fps ?? DEFAULT_WINDOW_FPS;
-    const startSec = this.offsetForEpoch(req.startMs);
-    const endSec = Math.max(startSec, this.offsetForEpoch(req.endMs));
-    const cap = req.maxFrames ?? DEFAULT_WINDOW_MAX_FRAMES;
-    const stamp = randomUUID();
-    const pattern = path.join(this.opts.framesDir, `probe_${stamp}_%04d.jpg`);
-    const filters = [`fps=${fps}`];
-    if (req.crop) filters.push(`crop=${req.crop.w}:${req.crop.h}:${req.crop.x}:${req.crop.y}`);
-
-    try {
-      await execFileAsync(
-        ffmpegPath,
-        [
-          "-hide_banner",
-          "-ss", startSec.toFixed(3),
-          "-to", endSec.toFixed(3),
-          "-i", videoPath,
-          "-vf", filters.join(","),
-          "-vsync", "vfr",
-          "-frames:v", String(cap),
-          "-q:v", "3",
-          pattern,
-        ],
-        { maxBuffer: 32 * 1024 * 1024 },
-      );
-    } catch (err) {
-      log.warn("legacy probe window failed:", message(err));
-      return [];
-    }
-
-    const added: FrameRecord[] = [];
-    for (let index = 1; index <= cap; index++) {
-      const file = path.join(
-        this.opts.framesDir,
-        `probe_${stamp}_${String(index).padStart(4, "0")}.jpg`,
-      );
-      if (!existsSync(file)) break;
-      const offsetSec = startSec + (index - 1) / fps;
-      const record = await this.keepOrDrop(
-        file,
-        offsetSec,
-        "probe",
-        req.reason ?? "probe:legacy-system-ffmpeg",
-      );
-      if (record) added.push(record);
-    }
-    this.persist();
-    return added;
-  }
-
-  private async extractLegacySingle(
-    offsetSec: number,
-    source: FrameSource,
-    reason?: string,
-  ): Promise<FrameRecord | null> {
-    const ffmpegPath = this.legacyFfmpegPath();
-    const videoPath = this.opts.videoPath;
-    if (!ffmpegPath || !videoPath) return null;
-    const file = path.join(this.opts.framesDir, `${source}_${Math.round(offsetSec * 1000)}.jpg`);
-    try {
-      await execFileAsync(
-        ffmpegPath,
-        [
-          "-hide_banner",
-          "-i", videoPath,
-          "-ss", offsetSec.toFixed(3),
-          "-frames:v", "1",
-          "-q:v", "3",
-          "-y", file,
-        ],
-        { maxBuffer: 16 * 1024 * 1024 },
-      );
-    } catch (err) {
-      log.warn(`legacy frame at ${offsetSec.toFixed(2)}s failed:`, message(err));
-      return null;
-    }
-    if (!existsSync(file)) return null;
-    return this.keepOrDrop(file, offsetSec, source, reason);
-  }
-
-  private legacyFfmpegPath(): string | null {
-    const resolved = systemFfmpegPath();
-    if (!resolved && !this.warnedLegacy) {
-      this.warnedLegacy = true;
-      log.warn(
-        "This recording predates captured source frames. Install FFmpeg to extract legacy video frames.",
-      );
-    }
-    return resolved;
   }
 
   private async keepOrDrop(
@@ -564,21 +447,6 @@ function finiteNumber(value: unknown): value is number {
 
 function finitePositiveNumber(value: unknown): value is number {
   return finiteNumber(value) && value > 0;
-}
-
-let ffmpegPath: string | null | undefined;
-function systemFfmpegPath(): string | null {
-  if (ffmpegPath !== undefined) return ffmpegPath;
-  try {
-    const finder = process.platform === "win32" ? "where" : "which";
-    ffmpegPath =
-      execFileSync(finder, ["ffmpeg"], { encoding: "utf8" })
-        .trim()
-        .split(/\r?\n/)[0] || null;
-  } catch {
-    ffmpegPath = null;
-  }
-  return ffmpegPath;
 }
 
 async function dhash(file: string): Promise<string> {

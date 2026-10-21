@@ -1,4 +1,12 @@
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  createReadStream,
+  existsSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { createInterface } from "node:readline";
+import { stripVTControlCharacters } from "node:util";
 import path from "node:path";
 
 import { NARRATION_FILE, type NarrationTranscript } from "../../common/narration";
@@ -13,6 +21,7 @@ import {
   type SensitiveSource,
 } from "../../common/sensitive";
 import type { RecEvent, SessionMeta } from "../../common/types";
+import { TERMINAL_ARTIFACTS } from "../../common/terminal";
 import { readEvents } from "../frames/correlate";
 import { createLogger } from "../logger";
 import { isValidSessionId, sessionDir } from "../recorder/session-store";
@@ -117,6 +126,74 @@ function collectFields(dir: string): ScanField[] {
   return fields;
 }
 
+/** Stream searchable terminal output without ever materializing an unbounded
+ * transcript in memory. PTY chunks can split a token, so retain a small overlap
+ * when a command emits a very long line. */
+async function* terminalOutputFields(dir: string): AsyncGenerator<ScanField> {
+  const file = path.join(
+    dir,
+    TERMINAL_ARTIFACTS.directory,
+    TERMINAL_ARTIFACTS.transcript,
+  );
+  if (!existsSync(file)) return;
+  const lines = createInterface({
+    input: createReadStream(file, { encoding: "utf8" }),
+    crlfDelay: Infinity,
+  });
+  let first = true;
+  let pending = "";
+  let pendingAtMs: number | null = null;
+  for await (const line of lines) {
+    if (first) {
+      first = false;
+      continue;
+    }
+    let row: unknown;
+    try {
+      row = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (
+      !Array.isArray(row) ||
+      row[1] !== "o" ||
+      typeof row[0] !== "number" ||
+      typeof row[2] !== "string"
+    ) {
+      continue;
+    }
+    if (pendingAtMs === null) pendingAtMs = Math.max(0, Math.round(row[0] * 1000));
+    pending += stripVTControlCharacters(row[2]).replaceAll("\u0000", "");
+    while (true) {
+      const newline = pending.indexOf("\n");
+      if (newline >= 0) {
+        const text = pending.slice(0, newline + 1);
+        pending = pending.slice(newline + 1);
+        if (text.trim()) {
+          yield { text, source: "terminal-output", atMs: pendingAtMs };
+        }
+        pendingAtMs = Math.max(0, Math.round(row[0] * 1000));
+        continue;
+      }
+      if (pending.length > 16_384) {
+        yield {
+          text: pending.slice(0, 16_384),
+          source: "terminal-output",
+          atMs: pendingAtMs,
+        };
+        pending = pending.slice(12_288);
+        pendingAtMs = Math.max(0, Math.round(row[0] * 1000));
+        continue;
+      }
+      break;
+    }
+  }
+  lines.close();
+  if (pending.trim()) {
+    yield { text: pending, source: "terminal-output", atMs: pendingAtMs };
+  }
+}
+
 /** Run every detection layer over one string and merge them (overlaps resolved). */
 async function matchesFor(text: string): Promise<SensitiveMatch[]> {
   const secrets = await scanSecrets(text);
@@ -148,22 +225,21 @@ function findingKey(source: SensitiveSource, match: SensitiveMatch): string {
  */
 export async function scanSession(sessionId: string): Promise<ScanResult> {
   const dir = sessionDir(sessionId); // throws on an unsafe id (traversal guard)
-  const fields = collectFields(dir);
-
   const byKey = new Map<string, SensitiveFinding>();
   const values = new Set<string>();
   // Payload fields repeat verbatim across events (app name, cwd, host, url), so
   // cache detector results by exact text to avoid re-scanning identical strings.
   const scanCache = new Map<string, SensitiveMatch[]>();
-  for (const field of fields) {
+  const scanField = async (field: ScanField): Promise<void> => {
     let matches = scanCache.get(field.text);
     if (!matches) {
       try {
         matches = await matchesFor(field.text);
       } catch (err) {
         log.warn("field scan failed:", err instanceof Error ? err.message : err);
-        continue;
+        return;
       }
+      if (scanCache.size >= 512) scanCache.clear();
       scanCache.set(field.text, matches);
     }
     for (const match of matches) {
@@ -189,6 +265,10 @@ export async function scanSession(sessionId: string): Promise<ScanResult> {
         occurrences: 1,
       });
     }
+  };
+  for (const field of collectFields(dir)) await scanField(field);
+  for await (const field of terminalOutputFields(dir)) {
+    await scanField(field);
   }
 
   const findings = [...byKey.values()].sort((a, b) => {

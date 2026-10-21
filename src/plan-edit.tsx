@@ -16,6 +16,7 @@ import {
   type TimeOfDay,
 } from "../common/automation";
 import type { PlanStep } from "../common/skill";
+import { planToolLabel } from "../common/plan-tools";
 import { tokenize, type Value } from "../common/values";
 
 /* --- shared array helpers (pure) ----------------------------------------- */
@@ -638,18 +639,20 @@ export function SkillStepTiles({
             placeholder="What happens in this step?"
             ariaLabel="Step description"
           />
-          {s.tool?.trim() && (
+          {s.tools.length > 0 && (
             <div className="tile-foot">
-              <span className="step-tool" title="Native tool this step uses">
-                {s.tool}
-              </span>
+              {s.tools.map((tool) => (
+                <span className="step-tool" title={`Runtime tool: ${tool}`} key={tool}>
+                  {planToolLabel(tool)}
+                </span>
+              ))}
             </div>
           )}
         </div>
       ))}
       <AddTile
         label="Add step"
-        onAdd={() => onChange([...steps, { kind: "action", title: "", text: "", tool: "" }])}
+        onAdd={() => onChange([...steps, { kind: "action", title: "", text: "", tools: [] }])}
       />
     </div>
   );

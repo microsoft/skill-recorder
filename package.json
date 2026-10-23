@@ -75,7 +75,7 @@
     "electron": "^43.0.0",
     "electron-builder": "^26.15.6",
     "typescript": "^7.0.0",
-    "vite": "^8.0.16",
+    "vite": "^8.3.5",
     "vite-plugin-electron": "1.0.4"
   },
   "overrides": {

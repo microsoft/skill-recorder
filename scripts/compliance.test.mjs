@@ -175,6 +175,26 @@ test("Tesseract WebAssembly source and notices are pinned to the reviewed build"
   }
 });
 
+test("libtiff notice uses the GitLab repository files API", () => {
+  const notices = buildTesseractNoticeSpecs(repoPolicy.tesseract);
+
+  const libtiff = notices.find(
+    ({ id }) => id === "tesseract-core-libtiff-license",
+  );
+
+  assert(libtiff, "missing libtiff license notice");
+
+  assert.equal(
+    libtiff.url,
+    `https://gitlab.com/api/v4/projects/libtiff%2Flibtiff/repository/files/COPYRIGHT/raw?ref=${repoPolicy.tesseract.sourceRevisions.libtiff}`,
+  );
+
+  assert.doesNotMatch(
+    libtiff.url,
+    /gitlab\.com\/libtiff\/libtiff\/-\/raw/,
+  );
+});
+
 test("runtime tessdata pins match the reviewed model policy", async () => {
   const source = await readFile(
     path.join(repoRoot, "electron", "sensitive", "tessdata-source.ts"),

@@ -210,6 +210,7 @@ const tesseractCoreSources = {
     archiveName: "tesseract-core-libtiff",
     gitRepository: "https://gitlab.com/libtiff/libtiff.git",
     rawBase: "https://gitlab.com/libtiff/libtiff/-/raw",
+    rawApiBase: "https://gitlab.com/api/v4/projects/libtiff%2Flibtiff/repository/files",
     webBase: "https://gitlab.com/libtiff/libtiff/-/tree",
   },
   libwebp: {
@@ -774,7 +775,9 @@ export function buildTesseractNoticeSpecs(tesseract) {
       id: `tesseract-core-${name}-license`,
       fileName: `tesseract-core-${notice.outputFile}`,
       outputPath: `tesseract-core/${notice.outputFile}`,
-      url: `${source.rawBase}/${revision}/${notice.path}`,
+      url: source.rawApiBase
+  ? `${source.rawApiBase}/${encodeURIComponent(notice.path)}/raw?ref=${encodeURIComponent(revision)}`
+  : `${source.rawBase}/${revision}/${notice.path}`,
       marker: notice.marker,
     };
   });

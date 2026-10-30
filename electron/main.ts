@@ -51,6 +51,12 @@ const log = createLogger("Main");
 // process (and the recording in progress). Registered before any window/IO work.
 installCrashGuards(log);
 
+// One copy at a time. Opening the app again from a shortcut would otherwise start a
+// second recorder with its own tray icon and windows, and only one of them can own
+// the global shortcut. The running copy comes to the front instead ("second-instance").
+const primaryInstance = app.requestSingleInstanceLock();
+if (!primaryInstance) app.exit(0);
+
 /** Static red-dot tile used for the macOS Dock icon. */
 const dock = dockIcon();
 
@@ -356,6 +362,7 @@ function clampControlsToDisplay(): void {
 }
 
 app.whenReady().then(async () => {
+  if (!primaryInstance) return;
   if (process.platform === "win32") Menu.setApplicationMenu(null);
   if (dock && app.dock) app.dock.setIcon(dock);
 
@@ -538,13 +545,17 @@ app.whenReady().then(async () => {
     log.warn("Global shortcut registration failed");
   }
 
-  app.on("activate", () => {
+  // A Dock click (macOS) or another launch from a shortcut brings the running app forward.
+  const reveal = () => {
     if (recorder.state === "recording") {
       showRecordingControls();
       return;
     }
-    showRecorderWindow();
-  });
+    const win = showRecorderWindow();
+    if (win.isMinimized()) win.restore();
+  };
+  app.on("activate", reveal);
+  app.on("second-instance", reveal);
 });
 
 app.on("window-all-closed", () => {

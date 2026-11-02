@@ -60,7 +60,7 @@
     "sharp": "^0.35.3",
     "tesseract.js": "^7.0.0",
     "tesseract.js-core": "^7.0.0",
-    "zod": "^4.3.6"
+    "zod": "^4.6.7"
   },
   "optionalDependencies": {
     "get-windows": "^9.3.0"

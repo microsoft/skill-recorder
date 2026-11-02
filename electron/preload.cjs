@@ -40,6 +40,12 @@ const IPC = {
   cancelAnalysis: "analyze:cancel",
   analyzeProgress: "analyze:progress",
   listSessions: "sessions:list",
+  importRecording: "import:select",
+  cancelImport: "import:cancel",
+  saveImportDetails: "import:details",
+  sessionsChanged: "sessions:changed",
+  librarySelection: "ui:library-selection",
+  takeLibrarySelection: "ui:take-library-selection",
   deleteSession: "sessions:delete",
   exportDebugBundle: "sessions:export-debug",
   buildSkill: "skill:build",
@@ -179,6 +185,20 @@ contextBridge.exposeInMainWorld("skillRecorder", {
     return () => ipcRenderer.removeListener(IPC.analyzeProgress, listener);
   },
   listSessions: () => ipcRenderer.invoke(IPC.listSessions),
+  importRecording: () => ipcRenderer.invoke(IPC.importRecording),
+  cancelImport: () => ipcRenderer.invoke(IPC.cancelImport),
+  saveImportDetails: (sessionId, details) => ipcRenderer.invoke(IPC.saveImportDetails, sessionId, details),
+  onSessionsChanged: (cb) => {
+    const listener = () => cb();
+    ipcRenderer.on(IPC.sessionsChanged, listener);
+    return () => ipcRenderer.removeListener(IPC.sessionsChanged, listener);
+  },
+  onLibrarySelection: (cb) => {
+    const listener = () => cb();
+    ipcRenderer.on(IPC.librarySelection, listener);
+    return () => ipcRenderer.removeListener(IPC.librarySelection, listener);
+  },
+  takeLibrarySelection: () => ipcRenderer.invoke(IPC.takeLibrarySelection),
   deleteSession: (sessionId) => ipcRenderer.invoke(IPC.deleteSession, sessionId),
   exportDebugBundle: (sessionId) => ipcRenderer.invoke(IPC.exportDebugBundle, sessionId),
   buildSkill: (input) => ipcRenderer.invoke(IPC.buildSkill, input),
@@ -204,7 +224,7 @@ contextBridge.exposeInMainWorld("skillRecorder", {
     ipcRenderer.on(IPC.automationProgress, listener);
     return () => ipcRenderer.removeListener(IPC.automationProgress, listener);
   },
-  openLibrary: () => ipcRenderer.invoke(IPC.openLibrary),
+  openLibrary: (sessionId) => ipcRenderer.invoke(IPC.openLibrary, sessionId),
   closeLibrary: () => ipcRenderer.invoke(IPC.closeLibrary),
   setRecordingControlsExpanded: (expanded) =>
     ipcRenderer.invoke(IPC.recordingControlsExpanded, expanded),

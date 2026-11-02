@@ -71,7 +71,8 @@ Those components remain under their own terms; the generated
   The Electron source archive and its applied FFmpeg patch queue accompany each
   release.
 - Chromium records the WebM media, captures screen snapshots, and decodes
-  narration audio. Skill Recorder does **not** distribute `ffmpeg-static` or a
+  narration audio. Imported MP4/WebM video and audio are decoded through the
+  same runtime. Skill Recorder does **not** distribute `ffmpeg-static` or a
   standalone FFmpeg executable.
 - A user-installed standalone FFmpeg may be invoked only to read a recording
   created before snapshot manifests were introduced. That executable is not part

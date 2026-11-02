@@ -16,7 +16,9 @@ import { FrameExtractor } from "../frames/extractor";
 import { createLogger } from "../logger";
 import { copilotConnectionOption, withStartupTimeout } from "../copilot-cli-path";
 import { sessionsRoot, sessionDir, isValidSessionId } from "../recorder/session-store";
-import { DESCRIBER_INSTRUCTIONS } from "./instructions";
+import { DESCRIBER_INSTRUCTIONS, IMPORTED_DESCRIBER_INSTRUCTIONS } from "./instructions";
+import { readImport } from "../imports/metadata";
+import { ImportedFrames } from "../imports/frames";
 import { createDescriberTools, type RedactionContext } from "./tools";
 
 const log = createLogger("Describer");
@@ -51,7 +53,9 @@ interface LiveSession {
   revision: number;
   feedbackLog: Analysis["feedbackLog"];
   /** Mutable capture slot the `submit_analysis` tool writes into. */
-  holder: { submission: AnalysisSubmission | undefined };
+  holder: { submission: AnalysisSubmission | undefined; mediaError?: Error };
+  importedFrames?: ImportedFrames;
+  signal?: AbortSignal;
   /** Mutable redaction slot; set per turn so tools mask outgoing data. */
   redaction: { current: RedactionContext | null };
 }
@@ -93,16 +97,25 @@ export class Describer {
   constructor(private readonly emitProgress: (p: AnalyzeProgress) => void) {}
 
   /** First pass: reconstruct the session from scratch. */
-  async analyze(sessionId: string, redaction?: RedactionContext): Promise<Analysis> {
+  async analyze(sessionId: string, redaction?: RedactionContext, signal?: AbortSignal): Promise<Analysis> {
     if (this.active.has(sessionId)) throw new Error("An analysis is already running for this session.");
     this.active.add(sessionId);
+    const abort = () => { void this.cancel(sessionId); };
+    signal?.addEventListener("abort", abort, { once: true });
     try {
+      signal?.throwIfAborted();
       this.emit(sessionId, "start", "Starting analysis…");
       await this.disposeLive(sessionId); // fresh conversation each explicit analyze
       const live = await this.createLive(sessionId);
+      live.signal = signal;
+      signal?.throwIfAborted();
       live.redaction.current = redaction ?? null;
-      return await this.runTurn(live, KICKOFF_PROMPT);
+      return await this.runTurn(live, live.importedFrames
+        ? "Analyze this imported recording. Read get_timeline for user details, read the transcript, and VIEW video frames before submitting the demonstrated activities."
+        : KICKOFF_PROMPT);
     } finally {
+      signal?.removeEventListener("abort", abort);
+      if (signal?.aborted) this.live.get(sessionId)?.importedFrames?.dispose();
       this.active.delete(sessionId);
     }
   }
@@ -148,6 +161,7 @@ export class Describer {
   /** Abort an in-flight run for a session. */
   async cancel(sessionId: string): Promise<void> {
     const live = this.live.get(sessionId);
+    live?.importedFrames?.dispose();
     if (live) await live.copilot.abort().catch(() => undefined);
   }
 
@@ -238,7 +252,10 @@ export class Describer {
     const meta = readJson<SessionMeta>(path.join(dir, "session.json"));
     if (!meta) throw new Error(`Session ${sessionId} not found or has no session.json.`);
 
-    const extractor = buildExtractor(dir);
+    const imported = meta.source === "imported-video" ? readImport(dir) : null;
+    if (meta.source === "imported-video" && !imported) throw new Error("Imported recording metadata is missing.");
+    const importedFrames = imported ? new ImportedFrames(dir, imported, meta.startedAt) : undefined;
+    const extractor = importedFrames ?? buildExtractor(dir);
     const holder: LiveSession["holder"] = { submission: undefined };
     const redaction: LiveSession["redaction"] = { current: null };
 
@@ -246,6 +263,8 @@ export class Describer {
       sessionDir: dir,
       startedAt: meta.startedAt,
       extractor,
+      imported: imported ?? undefined,
+      onMediaError: (error) => { holder.mediaError = error; },
       redaction,
       onProgress: (m) => this.emit(sessionId, "working", m),
       onSubmit: (s) => {
@@ -255,7 +274,7 @@ export class Describer {
 
     const client = await this.ensureClient();
     const config = {
-      systemMessage: { mode: "append" as const, content: DESCRIBER_INSTRUCTIONS },
+      systemMessage: { mode: "append" as const, content: imported ? IMPORTED_DESCRIBER_INSTRUCTIONS : DESCRIBER_INSTRUCTIONS },
       tools,
       onPermissionRequest: approveAll,
       workingDirectory: dir,
@@ -280,6 +299,7 @@ export class Describer {
       revision: prior?.revision ?? 0,
       feedbackLog: prior?.feedbackLog ?? [],
       holder,
+      importedFrames,
       redaction,
     };
     this.live.set(sessionId, live);
@@ -300,6 +320,7 @@ export class Describer {
   private async disposeLive(sessionId: string): Promise<void> {
     const live = this.live.get(sessionId);
     if (!live) return;
+    live.importedFrames?.dispose();
     this.live.delete(sessionId);
     await live.copilot.disconnect().catch(() => undefined);
   }
@@ -314,9 +335,10 @@ export class Describer {
       ? statSync(narrationFile).mtimeMs
       : null;
     live.holder.submission = undefined;
+    live.holder.mediaError = undefined;
     this.emit(live.sessionId, "working", "Thinking…");
     try {
-      await live.copilot.sendAndWait(prompt, TURN_TIMEOUT_MS);
+      await live.copilot.sendAndWait(prompt, live.importedFrames ? TURN_TIMEOUT_MS * 3 : TURN_TIMEOUT_MS);
     } catch (err) {
       // Don't leave the agent running past our timeout/abort — reclaim the turn.
       await live.copilot.abort().catch(() => undefined);
@@ -327,6 +349,8 @@ export class Describer {
       await live.copilot.sendAndWait(NUDGE_PROMPT, TURN_TIMEOUT_MS).catch(() => undefined);
     }
     const submission = live.holder.submission;
+    live.signal?.throwIfAborted();
+    if (live.holder.mediaError) throw live.holder.mediaError;
     if (!submission) throw new Error("The agent finished without submitting an analysis.");
 
     live.revision += 1;
@@ -351,17 +375,18 @@ export class Describer {
       [...live.feedbackLog],
       narrationSourceUpdatedAt,
     );
-    this.persist(live.sessionDir, analysis);
+    this.persist(live.sessionDir, analysis, Boolean(live.importedFrames));
     this.emit(live.sessionId, "done", `Analysis ready (revision ${analysis.revision}).`);
     return analysis;
   }
 
-  private persist(sessionDir: string, analysis: Analysis): void {
+  private persist(sessionDir: string, analysis: Analysis, strict = false): void {
     try {
       writeFileSync(path.join(sessionDir, "analysis.json"), JSON.stringify(analysis, null, 2));
       writeFileSync(path.join(sessionDir, "analysis.md"), renderAnalysisMarkdown(analysis));
     } catch (err) {
       log.warn("failed to persist analysis:", msg(err));
+      if (strict) throw err;
     }
   }
 }

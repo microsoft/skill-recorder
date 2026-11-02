@@ -11,7 +11,8 @@ const MAX_SAMPLES = 256 * 1024 * 1024;
 const DECODE_TIMEOUT_MS = 10 * 60_000;
 
 /** Decode and downmix a WebM narration file through Chromium's built-in codecs. */
-export async function decodeAudioFile(audioPath: string): Promise<Float32Array> {
+export async function decodeAudioFile(audioPath: string, signal?: AbortSignal): Promise<Float32Array> {
+  signal?.throwIfAborted();
   const id = randomUUID();
   const win = new BrowserWindow({
     show: false,
@@ -29,6 +30,8 @@ export async function decodeAudioFile(audioPath: string): Promise<Float32Array> 
   let settled = false;
   let timeout: NodeJS.Timeout | undefined;
   let removeListeners = () => undefined;
+  const abort = () => { if (!win.isDestroyed()) win.destroy(); };
+  signal?.addEventListener("abort", abort, { once: true });
 
   const result = new Promise<Float32Array>((resolve, reject) => {
     const finish = (error?: Error) => {
@@ -108,6 +111,7 @@ export async function decodeAudioFile(audioPath: string): Promise<Float32Array> 
   try {
     return await result;
   } finally {
+    signal?.removeEventListener("abort", abort);
     removeListeners();
     if (!win.isDestroyed()) win.destroy();
   }

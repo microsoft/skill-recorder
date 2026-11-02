@@ -23,8 +23,10 @@ export async function transcribeNarration(
   durationMs: number,
   language: NarrationLanguage,
   pipe: AsrPipeline,
+  signal?: AbortSignal,
 ): Promise<{ model: string; segments: NarrationSegment[] }> {
-  const samples = await decodeAudioFile(audioPath);
+  const samples = await decodeAudioFile(audioPath, signal);
+  signal?.throwIfAborted();
   if (samples.length === 0) {
     throw new Error("Narration audio decoded to zero samples.");
   }
@@ -32,6 +34,7 @@ export async function transcribeNarration(
   const silences = detectSilence(samples);
 
   const result = await pipe(samples, narrationTranscriptionOptions(language));
+  signal?.throwIfAborted();
 
   const durationSec = durationMs > 0 ? durationMs / 1000 : samples.length / SAMPLE_RATE;
   const raw = result.chunks?.length

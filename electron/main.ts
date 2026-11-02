@@ -20,6 +20,8 @@ import { installCrashGuards } from "./crash-guards";
 import { Describer } from "./describer/describer";
 import { processSession } from "./pipeline";
 import { registerIpc } from "./ipc";
+import { ImportManager } from "./imports/manager";
+import { isValidSessionId } from "./recorder/session-store";
 import { createLogger } from "./logger";
 import { NarrationManager } from "./narration/manager";
 import { SensitiveModelManager } from "./sensitive/model-manager";
@@ -66,6 +68,8 @@ let controlsExpanded = false;
 let quitReady = false;
 let quitTask: Promise<void> | null = null;
 let recordingStartPending = false;
+let pendingLibrarySelection: string | null = null;
+const imports = new ImportManager();
 const recordingPrivacy = new RecordingPrivacySession();
 const narration = new NarrationManager((status) =>
   broadcast(IPC.narrationStatusChanged, status),
@@ -153,13 +157,15 @@ const automationBuilder = new AutomationBuilder((progress) =>
 );
 
 /** Open, focus, and re-dock the Sessions library window (creating it lazily). */
-function openLibrary(): void {
+function openLibrary(sessionId?: string): void {
   if (recorder.state === "recording") return;
   if (!recorderWindow || recorderWindow.isDestroyed()) return;
+  if (sessionId && isValidSessionId(sessionId)) pendingLibrarySelection = sessionId;
   if (libraryWindow && !libraryWindow.isDestroyed()) {
     redockLibrary(recorderWindow, libraryWindow);
     libraryWindow.show();
     libraryWindow.focus();
+    if (pendingLibrarySelection) libraryWindow.webContents.send(IPC.librarySelection);
     return;
   }
   recorderHome = recorderWindow.getBounds();
@@ -392,6 +398,7 @@ app.whenReady().then(async () => {
         controls && !controls.isDestroyed() && sender === controls.webContents,
       );
     },
+    imports,
   );
   sensitiveModels.initialize();
   ipcMain.handle(IPC.start, () => requestStartRecording());
@@ -399,7 +406,13 @@ app.whenReady().then(async () => {
   ipcMain.handle(IPC.recordingPrivacyReviewed, () => recordingPrivacy.markReviewed());
   log.info("Capture: recording all sources");
 
-  ipcMain.handle(IPC.openLibrary, () => openLibrary());
+  ipcMain.handle(IPC.openLibrary, (_event, sessionId?: string) => openLibrary(sessionId));
+  ipcMain.handle(IPC.takeLibrarySelection, (event) => {
+    if (event.sender !== libraryWindow?.webContents) return null;
+    const selected = pendingLibrarySelection;
+    pendingLibrarySelection = null;
+    return selected;
+  });
   ipcMain.handle(IPC.closeLibrary, () => {
     if (libraryWindow && !libraryWindow.isDestroyed()) libraryWindow.close();
   });
@@ -571,10 +584,12 @@ app.on("before-quit", (event) => {
       if (response === 0) return;
     }
     recorder.beginShutdown();
+    imports.dispose();
     // stop() is serialized behind any start/mic/discard operation already in
     // flight, and is a harmless "Not recording" result when the app is idle.
     await recorder.stop(terminal.busy);
     await recorder.whenProcessed();
+    await imports.whenIdle();
     quitReady = true;
     app.quit();
   })()
@@ -591,6 +606,7 @@ app.on("before-quit", (event) => {
 app.on("will-quit", () => {
   globalShortcut.unregisterAll();
   void describer.dispose();
+  imports.dispose();
   void builder.dispose();
   void automationBuilder.dispose();
   microphones.dispose();

@@ -11,6 +11,7 @@ import {
 } from "../common/narration";
 import type { SessionMeta } from "../common/types";
 import { createLogger } from "./logger";
+import { readImport } from "./imports/metadata";
 import { isValidSessionId, sessionDir, sessionsRoot } from "./recorder/session-store";
 
 const log = createLogger("Sessions");
@@ -127,6 +128,16 @@ async function summarize(root: string, name: string): Promise<SessionSummary | n
     return null; // not a valid session dir
   }
   if (!meta?.id) return null;
+  let imported;
+  if (meta.source === "imported-video") {
+    try {
+      imported = readImport(dir);
+      if (!imported) throw new Error("Missing import.json");
+    } catch (error) {
+      log.warn(`invalid imported session ${name}:`, error);
+      return null;
+    }
+  }
 
   const [
     analysis,
@@ -156,6 +167,7 @@ async function summarize(root: string, name: string): Promise<SessionSummary | n
 
   return {
     id: meta.id,
+    ...(imported ? { imported } : {}),
     startedAt: meta.startedAt ?? null,
     stoppedAt: meta.stoppedAt ?? null,
     durationMs: meta.startedAt && meta.stoppedAt ? meta.stoppedAt - meta.startedAt : null,

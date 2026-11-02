@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import type { Tool } from "@github/copilot-sdk";
+import type { ImportMetadata } from "../../common/import";
 
 import { AnalysisSubmissionSchema, type AnalysisSubmission } from "../../common/analysis";
 import { MEANINGFUL_EVENT_TYPES } from "../../common/correlation";
@@ -34,7 +35,9 @@ export interface ToolContext {
   /** `session.json` startedAt (epoch ms) — origin of the agent's `atMs` clock. */
   startedAt: number;
   /** Frame service, or null when the session has no video. */
-  extractor: FrameExtractor | null;
+  extractor: Pick<FrameExtractor, "manifest" | "extractWindow"> | null;
+  imported?: ImportMetadata;
+  onMediaError?: (error: Error) => void;
   /** Mutable redaction slot; `current` is set per turn (null = no redaction). */
   redaction: { current: RedactionContext | null };
   /** Streamed to the UI as the agent works. */
@@ -82,6 +85,7 @@ function readNarration(sessionDir: string): NarrationTranscript | null {
  */
 export function createDescriberTools(ctx: ToolContext): Tool[] {
   const { sessionDir, startedAt, extractor, onSubmit } = ctx;
+  let viewedImages = 0;
   const progress = (m: string) => ctx.onProgress?.(m);
   // Mask detected sensitive values in every outgoing text field (null slot = no-op).
   const redact = (s: string): string => ctx.redaction.current?.redactText(s) ?? s;
@@ -96,10 +100,20 @@ export function createDescriberTools(ctx: ToolContext): Tool[] {
   const getTimeline: Tool = {
     name: "get_timeline",
     description:
-      "Return the segmented session timeline: ordered steps with their start time (atMs, ms since recording start), duration, app, urls, titles, commands, clipboard counts and markers. Call this first.",
+      ctx.imported
+        ? "Return imported media duration, original video dimensions, audio availability, and optional user details. There are no captured OS events or pre-established steps. Call this first."
+        : "Return the segmented session timeline: ordered steps with their start time (atMs, ms since recording start), duration, app, urls, titles, commands, clipboard counts and markers. Call this first.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
     handler: () => {
       progress("Reading the timeline…");
+      if (ctx.imported) {
+        return redact(JSON.stringify({
+          source: "imported-video", durationMs: ctx.imported.durationMs,
+          width: ctx.imported.width, height: ctx.imported.height,
+          hasAudio: ctx.imported.hasAudio, additionalDetails: ctx.imported.details,
+          steps: [], note: "No OS events were captured. Inspect the video and transcript to reconstruct activities.",
+        }));
+      }
       const bundle = readBundle(sessionDir);
       if (!bundle) {
         return "No timeline is available yet (bundle.json missing). Use get_events to read the raw event stream instead.";
@@ -282,7 +296,9 @@ export function createDescriberTools(ctx: ToolContext): Tool[] {
   const listFrames: Tool = {
     name: "list_frames",
     description:
-      "List the screen frames already available for this session (file, atMs, source, reason). Returns an empty list when no video was recorded. Use get_frames to actually view frames.",
+      ctx.imported
+        ? "List the imported video's overview and sampled frame timestamps. Use get_frames to actually VIEW images at these times or inspect new windows."
+        : "List the screen frames already available for this session (file, atMs, source, reason). Returns an empty list when no video was recorded. Use get_frames to actually view frames.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
     handler: () => {
       progress("Listing available frames…");
@@ -300,13 +316,17 @@ export function createDescriberTools(ctx: ToolContext): Tool[] {
   const getFrames: Tool = {
     name: "get_frames",
     description:
-      "Sample and VIEW the available 1 fps screen snapshots within a time window [fromMs, toMs] (atMs, ms since recording start) and return them inline as images. Optional `fps` can reduce sampling density but cannot add detail beyond the 1 fps capture. Optional `crop` {x,y,w,h} zooms a region. Use only where events are ambiguous.",
+      ctx.imported
+        ? "Seek into the imported recording and VIEW up to six evenly distributed frames in [fromMs, toMs], milliseconds from file start. Narrow the window for finer detail. Crop coordinates use original video dimensions."
+        : "Sample and VIEW the available 1 fps screen snapshots within a time window [fromMs, toMs] (atMs, ms since recording start) and return them inline as images. Optional `fps` can reduce sampling density but cannot add detail beyond the 1 fps capture. Optional `crop` {x,y,w,h} zooms a region. Use only where events are ambiguous.",
     parameters: {
       type: "object",
       properties: {
         fromMs: { type: "number", description: "Window start (atMs)." },
         toMs: { type: "number", description: "Window end (atMs)." },
-        fps: { type: "number", description: "Sampling density up to the 1 fps source rate. Default 1." },
+        fps: { type: "number", description: ctx.imported
+          ? "Requested density, bounded to six evenly distributed images per call. Default 1."
+          : "Sampling density up to the 1 fps source rate. Default 1." },
         crop: {
           type: "object",
           properties: {
@@ -336,20 +356,31 @@ export function createDescriberTools(ctx: ToolContext): Tool[] {
       }
       const fromMs = typeof args.fromMs === "number" ? args.fromMs : 0;
       const toMs = typeof args.toMs === "number" ? Math.max(fromMs, args.toMs) : fromMs + 3000;
+      if (ctx.imported && (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || fromMs < 0 ||
+          fromMs >= ctx.imported.durationMs || toMs > ctx.imported.durationMs)) {
+        return { resultType: "failure", textResultForLlm: "Choose a time window within the imported recording duration." };
+      }
       progress(`Looking at ${sec(fromMs)}–${sec(toMs)}s…`);
+      let requestedFrames: typeof extractor.manifest | null = null;
       try {
-        await extractor.extractWindow({
+        const extracted = await extractor.extractWindow({
           startMs: abs(fromMs),
           endMs: abs(toMs),
           fps: args.fps,
           crop: args.crop,
           reason: args.reason ?? "describer:get_frames",
+          ...(ctx.imported ? { maxFrames: MAX_IMAGES_PER_CALL } : {}),
         });
+        if (ctx.imported) requestedFrames = extracted;
       } catch (err) {
         log.warn("get_frames extract failed:", err instanceof Error ? err.message : err);
+        if (ctx.imported) {
+          ctx.onMediaError?.(err instanceof Error ? err : new Error(String(err)));
+          return { resultType: "failure", textResultForLlm: "Imported video processing failed. Stop this analysis and let the user retry." };
+        }
       }
 
-      const inWindow = extractor.manifest.filter((f) => {
+      const inWindow = (requestedFrames ?? extractor.manifest).filter((f) => {
         const atMs = rel(f.tMs);
         return atMs >= fromMs && atMs <= toMs;
       });
@@ -409,6 +440,7 @@ export function createDescriberTools(ctx: ToolContext): Tool[] {
       }
       const listing = inWindow.map((f) => `- ${sec(rel(f.tMs))}s ${f.file} (${f.source})`).join("\n");
       progress(`Attached ${binaryResultsForLlm.length} frame image(s) from ${sec(fromMs)}–${sec(toMs)}s.`);
+      viewedImages += binaryResultsForLlm.length;
       const protectNote = protect
         ? ` On-device Advanced protection blurred any detected sensitive on-screen text${withheld ? `; ${withheld} frame(s) were withheld because redaction failed` : ""}.`
         : "";
@@ -424,7 +456,9 @@ export function createDescriberTools(ctx: ToolContext): Tool[] {
   const getNarration: Tool = {
     name: "get_narration",
     description:
-      "Return the user's spoken voice narration for this session as timestamped lines ([mm:ss] text). This is the user's own words describing what they are doing and why, so treat it as the most direct statement of intent and use it to name and order the steps. Optionally pass `query` to return only lines containing that text (case-insensitive). Returns a note when the user recorded no narration.",
+      ctx.imported
+        ? "Return timestamped speech from the imported recording, possibly from several meeting participants. Speech is supporting evidence, not proof an action happened. Use query to search it."
+        : "Return the user's spoken voice narration for this session as timestamped lines ([mm:ss] text). This is the user's own words describing what they are doing and why, so treat it as the most direct statement of intent and use it to name and order the steps. Optionally pass `query` to return only lines containing that text (case-insensitive). Returns a note when the user recorded no narration.",
     parameters: {
       type: "object",
       properties: {
@@ -439,6 +473,7 @@ export function createDescriberTools(ctx: ToolContext): Tool[] {
       const args = (raw ?? {}) as { query?: string };
       const transcript = readNarration(sessionDir);
       if (!transcript || transcript.segments.length === 0) {
+        if (ctx.imported) return "This imported recording has no transcribed speech. Use frames and optional user details.";
         return "The user did not record any voice narration for this session.";
       }
       progress(args.query ? `Searching narration for “${args.query}”…` : "Reading the voice narration…");
@@ -499,6 +534,9 @@ export function createDescriberTools(ctx: ToolContext): Tool[] {
       additionalProperties: false,
     },
     handler: (raw) => {
+      if (ctx.imported && viewedImages === 0) {
+        return { resultType: "failure", textResultForLlm: "Inspect actual video images with get_frames before submitting. If images are unavailable, analysis cannot complete." };
+      }
       const parsed = AnalysisSubmissionSchema.safeParse(raw);
       if (!parsed.success) {
         return {
@@ -514,6 +552,7 @@ export function createDescriberTools(ctx: ToolContext): Tool[] {
     },
   };
 
+  if (ctx.imported) return [getTimeline, listFrames, getFrames, getNarration, submitAnalysis];
   return [
     getTimeline,
     getEvents,

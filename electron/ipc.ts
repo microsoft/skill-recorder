@@ -31,6 +31,9 @@ import type {
 import { IPC } from "../common/ipc";
 import type { AutomationPlan } from "../common/automation";
 import type { NarrationLanguage } from "../common/narration";
+import type { ImportResult } from "../common/import";
+import type { ImportManager } from "./imports/manager";
+import { readSessionImport } from "./imports/metadata";
 import type { SensitiveReport } from "../common/sensitive";
 import type { SkillPlan } from "../common/skill";
 import { AutomationBuilder, loadPersistedAutomation } from "./automationbuilder/builder";
@@ -44,7 +47,7 @@ import type { AudioRecorder } from "./audio/recorder";
 import type { NarrationManager } from "./narration/manager";
 import type { RecorderController } from "./recorder/controller";
 import type { ScreenSourceService } from "./video/sources";
-import { isValidSessionId } from "./recorder/session-store";
+import { isValidSessionId, sessionDir } from "./recorder/session-store";
 import {
   INACTIVE_FRAME_REDACTOR,
   OcrFrameRedactor,
@@ -69,7 +72,69 @@ export function registerIpc(
   sensitiveModels: SensitiveModelManager,
   isRecordingStartPending: () => boolean,
   canForceTerminalFinish: (sender: WebContents) => boolean,
+  imports: ImportManager,
 ): void {
+  const sessionsChanged = () => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.webContents.send(IPC.sessionsChanged);
+    }
+  };
+  ipcMain.handle(IPC.importRecording, async (event): Promise<ImportResult> => {
+    if (recorder.status().state === "recording" || recorder.status().transition !== "none" || isRecordingStartPending()) {
+      return { ok: false, error: "Finish recording before importing a video." };
+    }
+    try {
+      return await imports.run("selection", async (signal) => {
+        const options: OpenDialogOptions = {
+          title: "Import recording",
+          properties: ["openFile"],
+          filters: [{ name: "Recordings", extensions: ["mp4", "webm"] }],
+        };
+        const parent = BrowserWindow.fromWebContents(event.sender);
+        const picking = parent ? dialog.showOpenDialog(parent, options) : dialog.showOpenDialog(options);
+        let cancelDialog!: () => void;
+        const canceled = new Promise<{ canceled: boolean; filePaths: string[] }>((resolve) => {
+          cancelDialog = () => resolve({ canceled: true, filePaths: [] });
+          signal.addEventListener("abort", cancelDialog, { once: true });
+        });
+        let selected;
+        try { selected = await Promise.race([picking, canceled]); }
+        finally { signal.removeEventListener("abort", cancelDialog); }
+        if (selected.canceled || signal.aborted) return { ok: false, canceled: true };
+        const file = selected.filePaths[0];
+        if (!file) return { ok: false, canceled: true };
+        if (recorder.status().state === "recording" || isRecordingStartPending()) {
+          throw new Error("Finish recording before importing a video.");
+        }
+        let id: string;
+        try { id = await imports.select(file, signal); }
+        catch (error) {
+          if (signal.aborted) return { ok: false, canceled: true };
+          throw error;
+        }
+        sessionsChanged();
+        return { ok: true, sessionId: id };
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      log.warn("import failed:", message);
+      return { ok: false, error: message };
+    }
+  });
+  ipcMain.handle(IPC.cancelImport, () => imports.cancel("selection"));
+  ipcMain.handle(IPC.saveImportDetails, async (_event, id: string, input: unknown) => {
+    if (!isValidSessionId(id)) return { ok: false, error: "Unknown session." };
+    try {
+      if (describer.isAnalyzing(id) || narration.isBusyWith(id)) throw new Error("Wait for this recording's processing to finish.");
+      await imports.saveDetails(id, input);
+      sessionsChanged();
+      return { ok: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      log.warn("import details failed:", message);
+      return { ok: false, error: message };
+    }
+  });
   ipcMain.handle(IPC.stop, (event, forceTerminal?: boolean) => {
     if (forceTerminal === true && !canForceTerminalFinish(event.sender)) {
       return { ok: false, error: "Terminal interruption confirmation is unavailable." };
@@ -268,6 +333,36 @@ export function registerIpc(
       const id = resolveSessionId(sessionId);
       if (!id) return { ok: false, error: "No completed session to analyze yet." };
       if (!isValidSessionId(id)) return { ok: false, error: "Unknown session." };
+      try {
+        if (readSessionImport(sessionDir(id))) {
+          return await imports.run(id, async (signal) => {
+            for (const window of BrowserWindow.getAllWindows()) {
+              window.webContents.send(IPC.analyzeProgress, {
+                sessionId: id, phase: "working", message: "Preparing recording frames...",
+              });
+            }
+            await describer.forget(id);
+            await imports.prepare(id, signal);
+            const voice = await narration.ensureTranscribedForAnalysis(id, signal);
+            signal.throwIfAborted();
+            if (!voice.ok) throw new Error(`Could not transcribe the recording. Retry analysis. ${voice.error ?? ""}`);
+            const { redaction, report } = await buildRedaction(id);
+            signal.throwIfAborted();
+            if (redaction.frameRedactor?.active && !redaction.frameRedactor.ready) {
+              throw new Error("Screen protection is not ready, so imported video cannot be inspected. Retry after the protection model is ready.");
+            }
+            const analysis = await describer.analyze(id, redaction, signal);
+            const review = summarizeProtection(report, redaction);
+            saveSensitiveReport(id, review);
+            sessionsChanged();
+            return { ok: true, analysis, review };
+          });
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        log.warn("import analysis failed:", message);
+        return { ok: false, error: message };
+      }
       // Transcribe any recorded voice first so analysis never silently runs without
       // the user's spoken intent. Downloads the model on first use. Best-effort: a
       // failure here falls through to analyzing without voice (the error is surfaced
@@ -339,6 +434,7 @@ export function registerIpc(
   });
 
   ipcMain.handle(IPC.cancelAnalysis, async (_event, sessionId: string) => {
+    imports.cancel(sessionId);
     if (isValidSessionId(sessionId)) await describer.cancel(sessionId);
     return { ok: true };
   });
@@ -347,6 +443,7 @@ export function registerIpc(
 
   ipcMain.handle(IPC.deleteSession, async (_event, sessionId: string): Promise<DeleteSessionResult> => {
     if (!isValidSessionId(sessionId)) return { ok: false, error: "Unknown session." };
+    if (imports.isBusy(sessionId)) return { ok: false, error: "Cancel this import's processing before deleting it." };
     if (recorder.status().sessionId === sessionId) {
       return { ok: false, error: "You can't delete a recording while it's still in progress." };
     }
@@ -383,6 +480,7 @@ export function registerIpc(
     IPC.exportDebugBundle,
     async (event, sessionId: string): Promise<DebugBundleResult> => {
       if (!isValidSessionId(sessionId)) return { ok: false, error: "Unknown session." };
+      if (imports.isBusy(sessionId)) return { ok: false, error: "Wait for import processing before downloading details." };
       // The session folder is still being written while it records; refuse to zip
       // a moving target. Analyzing/building are read-only, so those are allowed.
       if (recorder.status().sessionId === sessionId) {

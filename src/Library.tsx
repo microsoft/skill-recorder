@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 import type { Analysis, AnalysisStep } from "../common/analysis";
+import { IMPORT_LIMITS } from "../common/import";
 import type {
   AnalyzeProgress,
   AutomationBuildProgress,
@@ -30,6 +31,9 @@ import {
   DEFAULT_NARRATION_LANGUAGE,
   NARRATION_MODEL_DOWNLOAD_LABEL,
   narrationLanguageLabel,
+  NARRATION_LANGUAGES,
+  isNarrationLanguage,
+  type NarrationLanguage,
 } from "../common/narration";
 import {
   AnalysisStepTiles,
@@ -54,9 +58,11 @@ export function Library() {
 
   const loadSessions = useCallback(async () => {
     const list = await window.skillRecorder.listSessions();
+    const requested = await window.skillRecorder.takeLibrarySelection();
     setSessions(list);
     setLoaded(true);
-    setSelectedId((prev) => prev ?? list[0]?.id ?? null);
+    setSelectedId((prev) => requested && list.some((item) => item.id === requested)
+      ? requested : prev ?? list[0]?.id ?? null);
   }, []);
 
   useEffect(() => {
@@ -64,6 +70,11 @@ export function Library() {
     return window.skillRecorder.onStatusChanged((s) => {
       if (s.state !== "recording") void loadSessions();
     });
+  }, [loadSessions]);
+  useEffect(() => {
+    const offSessions = window.skillRecorder.onSessionsChanged(() => { void loadSessions(); });
+    const offSelection = window.skillRecorder.onLibrarySelection(() => { void loadSessions(); });
+    return () => { offSessions(); offSelection(); };
   }, [loadSessions]);
 
   useEffect(() => {
@@ -195,15 +206,16 @@ function SessionsList({
                 <div className="sess-top">
                   <span className="sess-when">{formatWhen(s.startedAt)}</span>
                   <span className="sess-tags">
+                    {s.imported && <span className="tag recorded">imported</span>}
                     {s.hasSkill && <span className="tag ok">skill</span>}
                     {s.hasAutomation && <span className="tag auto">automation</span>}
                     {!s.hasSkill && !s.hasAutomation && s.analysis && (
                       <span className="tag an">analyzed</span>
                     )}
-                    {!s.hasSkill && !s.hasAutomation && !s.analysis && !s.processed && (
+                    {!s.imported && !s.hasSkill && !s.hasAutomation && !s.analysis && !s.processed && (
                       <span className="tag warn">processing</span>
                     )}
-                    {!s.hasSkill && !s.hasAutomation && !s.analysis && s.processed && (
+                    {!s.imported && !s.hasSkill && !s.hasAutomation && !s.analysis && s.processed && (
                       <span className="tag recorded">recorded</span>
                     )}
                   </span>
@@ -211,7 +223,7 @@ function SessionsList({
                 <div className="sess-intent">
                   {s.analysis
                     ? s.analysis.title?.trim() || shortLabel(s.analysis.intent)
-                    : "Not analyzed yet"}
+                    : s.imported?.name ?? "Not analyzed yet"}
                 </div>
                 <div className="sess-sub">
                   {s.durationMs != null && <span>{formatDur(s.durationMs)}</span>}
@@ -556,6 +568,11 @@ function AnalysisWorkspace({
   onChanged: () => void | Promise<void>;
 }) {
   const sessionId = summary.id;
+  const imported = summary.imported;
+  const [importDetails, setImportDetails] = useState(imported?.details ?? "");
+  const [importLanguage, setImportLanguage] = useState<NarrationLanguage>(imported?.language ?? DEFAULT_NARRATION_LANGUAGE);
+  const importRunActive = useRef(false);
+  const readyToAnalyze = summary.processed || Boolean(imported);
   const voicePending = summary.hasAudio && !summary.hasNarration;
   const voiceLanguage = narrationLanguageLabel(
     summary.narrationLanguage ?? DEFAULT_NARRATION_LANGUAGE,
@@ -613,6 +630,9 @@ function AnalysisWorkspace({
     workspaceLive.current = true;
     return () => {
       workspaceLive.current = false;
+      if (importRunActive.current) {
+        void window.skillRecorder.cancelAnalysis(sessionId).catch((error) => console.error("Could not cancel departing import analysis:", error));
+      }
       recovery.current.invalidate();
       signInPendingRef.current = false;
       pendingRecovery.current = null;
@@ -678,6 +698,7 @@ function AnalysisWorkspace({
   const executeRun = useCallback(
     async (token: AnalysisRun) => {
       latestRun.current = token;
+      importRunActive.current = Boolean(imported);
       setEditing(false);
       setDraftTitle("");
       setDraftIntent("");
@@ -688,6 +709,13 @@ function AnalysisWorkspace({
       setStatusLine("Starting…");
       let signedOut = false;
       try {
+        if (imported) {
+          const saved = await window.skillRecorder.saveImportDetails(sessionId, {
+            details: importDetails, language: importLanguage,
+          });
+          if (!saved.ok) throw new Error(saved.error ?? "Could not save recording details.");
+          if (!workspaceLive.current || !recovery.current.accepts(token)) return;
+        }
         const res = await window.skillRecorder.analyze(sessionId);
         if (!workspaceLive.current || !recovery.current.accepts(token)) return;
         if (res.ok && res.analysis) {
@@ -710,6 +738,7 @@ function AnalysisWorkspace({
           setFailedRun(token);
         }
       } finally {
+        importRunActive.current = false;
         if (workspaceLive.current && recovery.current.isCurrent(token)) {
           recovery.current.finishRun(token, signedOut);
           setAnalyzing(false);
@@ -725,7 +754,7 @@ function AnalysisWorkspace({
         }
       }
     },
-    [sessionId, onChanged],
+    [sessionId, onChanged, imported, importDetails, importLanguage],
   );
 
   const run = useCallback(async () => {
@@ -852,7 +881,7 @@ function AnalysisWorkspace({
       </div>
 
       <div className="ws-body">
-        {voicePending && voiceError && !analyzing && (
+        {voicePending && voiceError && !analyzing && !imported && (
           <p className="voice-analysis-note">
             Couldn't transcribe your {voiceLanguage} voice, so this analysis doesn't include it.
             Your audio is saved — analyzing again will retry.
@@ -888,22 +917,49 @@ function AnalysisWorkspace({
           </div>
         )}
 
-        {!summary.processed && (
+        {!readyToAnalyze && (
           <p className="ws-note">Still processing this recording… try again in a moment.</p>
         )}
 
-        {summary.processed && !analysis && !analyzing && (
+        {readyToAnalyze && !analysis && !analyzing && (
           <div className="ws-empty">
-            <p className="ws-empty-lead">See what you did in this recording, step by step.</p>
+            <p className="ws-empty-lead">{imported ? "Turn this recording into a step-by-step activity list." : "See what you did in this recording, step by step."}</p>
+            {imported && (
+              <div className="import-details">
+                <p className="import-source">{imported.name} · {formatDur(imported.durationMs)} · {imported.hasAudio ? "Video and audio" : "Video without audio"}</p>
+                <label className="edit-field">
+                  <span className="edit-label">Additional details (optional)</span>
+                  <textarea
+                    className="edit-intent"
+                    value={importDetails}
+                    maxLength={IMPORT_LIMITS.details}
+                    placeholder="For example: The demo runs from 02:10 to 05:30. It shows how to approve an expense. The final confirmation happens in a separate app."
+                    onChange={(event) => setImportDetails(event.target.value)}
+                    disabled={signInPending}
+                  />
+                </label>
+                <small>You can leave this empty. Describe the task, explain what is shown, or suggest demo timestamps. Timestamps guide the AI; they do not trim the file, and other parts may still be processed.</small>
+                {imported.hasAudio && (
+                  <label className="edit-field">
+                    <span className="edit-label">Recording language</span>
+                    <select className="edit-title" value={importLanguage} disabled={signInPending} onChange={(event) => {
+                      if (isNarrationLanguage(event.target.value)) setImportLanguage(event.target.value);
+                    }}>
+                      {NARRATION_LANGUAGES.map((language) => <option key={language.code} value={language.code}>{language.label}</option>)}
+                    </select>
+                  </label>
+                )}
+              </div>
+            )}
             <button className="record-cta" onClick={() => void run()} disabled={signInPending}>
               Analyze recording
             </button>
             <details className="analyze-disclosure">
               <summary>What gets sent to GitHub Copilot</summary>
               <p>
-                When you choose Analyze, the event timeline (window and document titles, URLs, and
-                clipboard previews), plus screen images, narration text, and other content you
-                provide, are sent to GitHub&apos;s cloud service for processing by GitHub Copilot.{" "}
+                {imported
+                  ? "When you choose Analyze, selected video frames, transcribed speech, and your additional details are sent to GitHub's cloud service for processing by GitHub Copilot. The imported media file stays on this computer. "
+                  : "When you choose Analyze, the event timeline (window and document titles, URLs, and clipboard previews), plus screen images, narration text, and other content you provide, are sent to GitHub's cloud service for processing by GitHub Copilot. "}
                 <span className="cloud-analysis-caution">
                   Do not analyze a recording that may contain passwords, access tokens, API keys,
                   credentials, secrets, or other sensitive or confidential information.
@@ -916,7 +972,9 @@ function AnalysisWorkspace({
             </details>
             {voicePending && (
               <p className="voice-analysis-note">
-                {narrationStatus?.model === "ready"
+                {imported
+                  ? `Audio is transcribed locally in ${narrationLanguageLabel(importLanguage)} before analysis. ${narrationStatus?.model === "ready" ? "" : `Choosing Analyze also downloads the ${NARRATION_MODEL_DOWNLOAD_LABEL} transcription model once.`} If transcription fails, analysis stops so you can retry.`
+                  : narrationStatus?.model === "ready"
                   ? `Your ${voiceLanguage} voice is transcribed in the same language first, then analyzed.`
                   : `Your ${voiceLanguage} voice is transcribed in the same language first, then analyzed. The first run downloads a ${NARRATION_MODEL_DOWNLOAD_LABEL} voice model once.`}
               </p>

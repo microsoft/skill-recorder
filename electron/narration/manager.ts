@@ -179,7 +179,8 @@ export class NarrationManager {
    * saved. A session with no audio, or one already transcribed, is a fast no-op
    * that never touches the transcription queue.
    */
-  async ensureTranscribedForAnalysis(sessionId: string): Promise<NarrationActionResult> {
+  async ensureTranscribedForAnalysis(sessionId: string, signal?: AbortSignal): Promise<NarrationActionResult> {
+    signal?.throwIfAborted();
     if (!isValidSessionId(sessionId)) return { ok: false, error: "Unknown session." };
     const dir = sessionDir(sessionId);
     const hasAudio = existsSync(path.join(dir, "audio.json"));
@@ -187,7 +188,7 @@ export class NarrationManager {
     if (!shouldTranscribeBeforeAnalyze(hasAudio, hasTranscript)) {
       return hasTranscript ? { ok: true, outcome: "already-transcribed" } : { ok: true };
     }
-    const result = await this.transcribeSessionWithDownload(sessionId, true);
+    const result = await this.transcribeSessionWithDownload(sessionId, true, signal);
     if (!result.ok) {
       log.warn(
         `pre-analysis transcription failed for ${sessionId}:`,
@@ -210,10 +211,11 @@ export class NarrationManager {
   private transcribeSessionWithDownload(
     sessionId: string,
     allowDownload: boolean,
+    signal?: AbortSignal,
   ): Promise<NarrationActionResult> {
     const existing = this.sessionTasks.get(sessionId);
     if (existing) return existing;
-    const task = this.enqueue(() => this.runTranscription(sessionId, allowDownload));
+    const task = this.enqueue(() => this.runTranscription(sessionId, allowDownload, signal));
     this.sessionTasks.set(sessionId, task);
     void task.finally(() => {
       if (this.sessionTasks.get(sessionId) === task) this.sessionTasks.delete(sessionId);
@@ -233,6 +235,7 @@ export class NarrationManager {
   private async runTranscription(
     sessionId: string,
     allowDownload: boolean,
+    signal?: AbortSignal,
   ): Promise<NarrationActionResult> {
     const dir = sessionDir(sessionId);
     const narrationFile = path.join(dir, NARRATION_FILE);
@@ -283,7 +286,9 @@ export class NarrationManager {
     }
 
     try {
+      signal?.throwIfAborted();
       const pipe = await this.loadModel(allowDownload, sessionId);
+      signal?.throwIfAborted();
       this.update({
         model: "ready",
         phase: "transcribing",
@@ -305,11 +310,13 @@ export class NarrationManager {
           source.durationMs,
           narrationLanguage,
           pipe,
+          signal,
         );
         transcript.model ||= segmentTranscript.model;
         transcript.segments.push(...segmentTranscript.segments);
       }
       transcript.segments.sort((a, b) => a.atMs - b.atMs);
+      signal?.throwIfAborted();
       await writeTranscript(narrationFile, transcript);
       log.info(`transcribed ${sessionId}: ${transcript.segments.length} segment(s)`);
       this.update({

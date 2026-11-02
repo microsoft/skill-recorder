@@ -6,6 +6,8 @@ export interface SessionMeta {
   stoppedAt: number | null;
   platform: NodeJS.Platform;
   appVersion: string;
+  /** Absent in recordings made before local video import was introduced. */
+  source?: "imported-video";
 }
 
 /**

@@ -15,6 +15,10 @@ function copyStaticAssets(): void {
   mkdirSync(out, { recursive: true });
   mkdirSync(path.join(out, "video"), { recursive: true });
   mkdirSync(path.join(out, "audio"), { recursive: true });
+  mkdirSync(path.join(out, "imports"), { recursive: true });
+  for (const file of ["media.html", "media-preload.cjs"]) {
+    copyFileSync(path.join(rootDir, "electron", "imports", file), path.join(out, "imports", file));
+  }
   const icons = path.join(out, "assets", "icons");
   mkdirSync(icons, { recursive: true });
   const iconSrc = path.join(rootDir, "electron", "assets", "icons");

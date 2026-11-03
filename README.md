@@ -47,6 +47,66 @@ surface uses that exact preview. Editing the plan discards the preview. You can
 still choose Add/Export directly without reviewing or adding a confirmation step.
 Review provides visibility into the generated instructions, not a security guarantee.
 
+### Import an existing recording
+
+Instead of recording your screen, use the smaller **folder icon beside Record** to
+choose a local **MP4 or WebM** file, such as a downloaded Teams demonstration.
+Chromium checks the actual video and audio before the details screen opens.
+Unsupported codecs, encrypted or unsupported track layouts, corrupt media, and
+files outside the import limits are rejected with an explanation. No converter,
+standalone FFmpeg installation, or additional codec download is required.
+
+The initial limits are **512 MiB**, **15 minutes**, and **3840 x 2160 pixels**
+(or an equivalent pixel count). Audio must be mono or stereo at no more than
+48 kHz. Import supports one video track and at most one audio track. MP4 track
+types recognized are AVC, HEVC, VP9, or AV1 video with AAC/Opus audio; WebM
+recognizes VP8, VP9, or AV1 with Opus/Vorbis. Recognized track metadata is not a
+codec-support guarantee: the shipped Chromium runtime must actually decode it.
+
+Import memory use is higher than the compressed file size. A Windows ARM64
+stress check with a 512 MiB input, 15-minute stereo audio, and the existing
+Whisper model resident peaked at approximately **4.6 GB (4.25 GiB)** across
+Electron processes. This is a measurement, not a guarantee for every file or
+platform, and excludes other apps and the external Copilot CLI process. The
+import decoder has a **2 GiB** working-set guard; recordings that exceed it are
+rejected even when their file size is within the limit.
+
+After validation, you can enter **Additional details**, or leave the field empty.
+Explain the task, supplement what is visible, or indicate where the demo happens.
+**Timestamps are guidance, not trimming:** other parts of the recording may still
+be processed. Choose the recording's spoken language when it contains audio.
+Analyze transcribes audio locally using the existing Whisper model (with the
+first-use download disclosed before proceeding); transcription failures stop the
+import's analysis so you can retry. Videos without audio and recordings with no
+detected speech are supported.
+
+The resulting activity list uses the normal review flow: edit details, reorder,
+add or remove activities, then create and review your skill as usual. Imported
+analysis uses frames, speech, and your details, not captured OS events; it cannot
+recover hidden clipboard contents or commands that were never visible or spoken.
+
+The original file is untouched. A local copy and derived artifacts are stored in
+Sessions, and deleting the session removes only that copy. Selecting a file does
+not send it to the cloud. Choosing Analyze sends selected frames, transcribed
+speech, and your details through the existing privacy-protection pipeline to
+GitHub Copilot. Debug exports include the imported media and details, just as
+they include private data from live recordings. Only import recordings you are
+authorized to use, and keep sensitive/confidential content out of them.
+
+Live recording, its permissions and settings, and its event-first analysis are
+unchanged. Imports do not require microphone or screen-capture permission.
+
+For development, `npm test` includes the import contract/privacy tests.
+`npm run test:import:runtime` uses the reviewed Electron runtime to generate
+synthetic MP4/WebM files with Chromium and exercise decoding, seeking, silent and
+absent audio, unsupported codecs, cancellation, and source-file preservation.
+Run that check on each release target; it does not replace checking representative
+Teams files. Add `-- --large` to also import an exact 512 MiB synthetic MP4 and
+check rejection of a file one byte over the limit; this check needs additional
+memory and temporary disk space. The initial local measurements and runtime check were performed on
+Windows ARM64; other platforms and real meeting recordings require their own
+verification.
+
 ## Get started
 
 Skill Recorder is published as a **source release**: one command downloads a pinned Node.js

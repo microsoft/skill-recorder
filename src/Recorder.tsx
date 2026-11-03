@@ -17,6 +17,7 @@ import {
   type NarrationLanguage,
 } from "../common/narration";
 import { formatMs } from "./format";
+import { IMPORT_LIMIT_LABEL } from "../common/import";
 import { RecordingPrivacyWarning } from "./RecordingPrivacyWarning";
 import { WhatsRecorded } from "./WhatsRecorded";
 
@@ -69,6 +70,9 @@ export function Recorder() {
   const [elapsed, setElapsed] = useState(0);
   const [sessionCount, setSessionCount] = useState(0);
   const [pendingCount, setPendingCount] = useState(0);
+  const [importPending, setImportPending] = useState(false);
+  const [importCanceling, setImportCanceling] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
   const narrationSettingsRef = useRef<HTMLElement>(null);
   const hudRef = useRef<HTMLDivElement>(null);
 
@@ -82,6 +86,7 @@ export function Recorder() {
     setStatus(next);
     setSelectedNarrationLanguage(next.narrationLanguage);
   }, []);
+  useEffect(() => window.skillRecorder.onSessionsChanged(() => { void refreshCount(); }), [refreshCount]);
 
   useEffect(() => {
     void window.skillRecorder.status().then(applyRecorderStatus);
@@ -311,6 +316,29 @@ export function Recorder() {
     void window.skillRecorder.openLibrary();
   }, []);
 
+  const importRecording = useCallback(async () => {
+    setImportPending(true);
+    setImportCanceling(false);
+    setImportError(null);
+    try {
+      const result = await window.skillRecorder.importRecording();
+      if (result.ok && result.sessionId) {
+        await refreshCount();
+        await window.skillRecorder.openLibrary(result.sessionId);
+      } else if (!result.canceled) {
+        setImportError(result.error ?? "Could not import this recording.");
+      }
+    } catch (error) {
+      setImportError(`Could not import this recording: ${String(error)}`);
+    } finally { setImportPending(false); setImportCanceling(false); }
+  }, [refreshCount]);
+
+  const cancelImport = useCallback(async () => {
+    setImportCanceling(true);
+    try { await window.skillRecorder.cancelImport(); }
+    catch (error) { setImportError(`Could not cancel import: ${String(error)}`); setImportCanceling(false); }
+  }, []);
+
   const downloadNarrationModel = useCallback(async () => {
     const res = await window.skillRecorder.downloadNarrationModel();
     if (!res.ok) window.alert(res.error ?? "Could not download the voice transcription model.");
@@ -337,6 +365,7 @@ export function Recorder() {
   return (
     <div className="hud" ref={hudRef}>
       <div className="transport">
+        <div className="record-actions">
         <button
           className={`record ${recording ? "on" : ""}`}
           onClick={toggle}
@@ -345,6 +374,25 @@ export function Recorder() {
         >
           <span className="record-glyph" />
         </button>
+        <button
+          className="import-recording"
+          onClick={() => void importRecording()}
+          disabled={recording || transitioning || importPending || microphonePending || screenPending}
+          aria-label="Import recording"
+          title={`Import recording (${IMPORT_LIMIT_LABEL})`}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10H3V7Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+          </svg>
+        </button>
+        </div>
+        {importPending && (
+          <div className="import-notice" role="status">
+            <span>{importCanceling ? "Canceling import..." : "Checking recording compatibility..."}</span>
+            <button className="linky" disabled={importCanceling} onClick={() => void cancelImport()}>Cancel</button>
+          </div>
+        )}
+        {importError && <p className="import-error" role="alert">{importError}</p>}
         <div className={`timecode ${recording ? "live" : ""}`}>
           {recording ? formatMs(elapsed) : "00:00"}
         </div>

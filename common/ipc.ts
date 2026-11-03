@@ -11,6 +11,7 @@ import type {
   TargetPlacement,
 } from "./skill";
 import type { RecorderState } from "./types";
+import type { ImportDetails, ImportMetadata, ImportResult } from "./import";
 import type {
   SupportedShellId,
   TerminalActionResult,
@@ -36,6 +37,7 @@ export interface LastSession {
 /** A saved recording as shown in the sessions library. */
 export interface SessionSummary {
   id: string;
+  imported?: ImportMetadata;
   startedAt: number | null;
   stoppedAt: number | null;
   durationMs: number | null;
@@ -486,6 +488,12 @@ export const IPC = {
   cancelAnalysis: "analyze:cancel",
   analyzeProgress: "analyze:progress",
   listSessions: "sessions:list",
+  importRecording: "import:select",
+  cancelImport: "import:cancel",
+  saveImportDetails: "import:details",
+  sessionsChanged: "sessions:changed",
+  librarySelection: "ui:library-selection",
+  takeLibrarySelection: "ui:take-library-selection",
   deleteSession: "sessions:delete",
   exportDebugBundle: "sessions:export-debug",
   buildSkill: "skill:build",
@@ -598,6 +606,12 @@ export interface SkillRecorderApi {
   onAnalyzeProgress(cb: (progress: AnalyzeProgress) => void): () => void;
   /** All saved recordings, newest first, for the sessions library. */
   listSessions(): Promise<SessionSummary[]>;
+  importRecording(): Promise<ImportResult>;
+  cancelImport(): Promise<void>;
+  saveImportDetails(sessionId: string, details: ImportDetails): Promise<{ ok: boolean; error?: string }>;
+  onSessionsChanged(cb: () => void): () => void;
+  onLibrarySelection(cb: () => void): () => void;
+  takeLibrarySelection(): Promise<string | null>;
   /** Permanently delete a saved recording and all its artifacts from disk. */
   deleteSession(sessionId: string): Promise<DeleteSessionResult>;
   /**
@@ -650,7 +664,7 @@ export interface SkillRecorderApi {
   revealAutomation(sessionId: string): Promise<{ ok: boolean }>;
   onAutomationProgress(cb: (progress: AutomationBuildProgress) => void): () => void;
   /** Open (and focus) the Sessions library window, docked to the recorder. */
-  openLibrary(): Promise<void>;
+  openLibrary(sessionId?: string): Promise<void>;
   /** Close the Sessions library window from within it. */
   closeLibrary(): Promise<void>;
   /** Resize the recording-controls window while an overlay panel is visible. */

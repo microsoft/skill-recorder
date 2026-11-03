@@ -10,6 +10,7 @@ import { stripVTControlCharacters } from "node:util";
 import path from "node:path";
 
 import { NARRATION_FILE, type NarrationTranscript } from "../../common/narration";
+import { readSessionImport } from "../imports/metadata";
 import {
   maskValue,
   redactedSnippet,
@@ -97,6 +98,11 @@ function fieldsFromEvent(ev: RecEvent, startedAt: number | null): ScanField[] {
 /** Every scannable text field of a recording, in timeline order. */
 function collectFields(dir: string): ScanField[] {
   const fields: ScanField[] = [];
+  const imported = readSessionImport(dir);
+  if (imported) {
+    fields.push({ text: imported.details, source: "note", atMs: null });
+    fields.push({ text: imported.name, source: "other", atMs: null });
+  }
 
   const meta = readJson<SessionMeta>(path.join(dir, "session.json"));
   const startedAt = typeof meta?.startedAt === "number" ? meta.startedAt : null;

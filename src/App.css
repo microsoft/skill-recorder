@@ -466,6 +466,34 @@ button:focus-visible,
   padding: 10px 0 4px;
 }
 
+.record-actions {
+  display: grid;
+  grid-template-columns: 36px 76px 36px;
+  align-items: center;
+  gap: 12px;
+}
+
+.record-actions > .record { grid-column: 2; }
+
+.import-recording {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.import-recording:hover { border-color: var(--line-strong); color: var(--text); }
+.import-notice { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.import-error { color: var(--brand-ink); font-size: 12px; margin: 0; overflow-wrap: anywhere; }
+.import-details { width: 100%; display: grid; gap: 12px; margin-bottom: 18px; text-align: left; }
+.import-details textarea { width: 100%; min-height: 110px; resize: vertical; }
+.import-details small { color: var(--muted); line-height: 1.5; }
+.import-source { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+
 .record {
   width: 76px;
   height: 76px;

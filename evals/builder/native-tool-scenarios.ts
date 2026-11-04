@@ -501,7 +501,51 @@ const leadToCrm: BuilderScenario = {
   },
 };
 
-/** The eight task scenarios that mirror the describer eval set. */
+/** UI-only web portal interaction targeting portable agent-skill via agent-browser CLI. */
+const agentPortalAutomation: BuilderScenario = {
+  id: "agent-portal-automation",
+  title: "Extract portal data and submit confirmation via agent-browser",
+  architecture: "agent-skill",
+  platform: "darwin",
+  truth:
+    "The user navigated to an internal vendor portal with no API or CLI, extracted status records, " +
+    "and confirmed an order update. Because the target is a generic agent-skill without host-specific " +
+    "browser tools, the skill maps the interaction to the portable agent-browser CLI.",
+  analysis: {
+    title: "Vendor portal order confirmation",
+    intent:
+      "Navigate to the vendor portal, inspect pending order statuses using accessibility snapshots, " +
+      "and submit order confirmation via agent-browser.",
+    intentConfidence: "high",
+    intentRationale:
+      "Order items were viewed on an internal vendor portal (vendor.internal.example/orders) and " +
+      "confirmed through the web interface.",
+    steps: [
+      {
+        id: "s1",
+        title: "Open vendor orders portal",
+        detail: "Navigated to the vendor portal to inspect pending orders.",
+        apps: ["Google Chrome"],
+        evidence: ["browser.url https://vendor.internal.example/orders", "title 'Vendor Portal — Orders'"],
+        confidence: "high",
+      },
+      {
+        id: "s2",
+        title: "Snapshot and confirm pending orders",
+        detail: "Captured page elements, confirmed the open batch, and submitted the confirmation.",
+        apps: ["Google Chrome"],
+        evidence: ["button 'Confirm All'", "status 'Batch 489 confirmed'"],
+        confidence: "high",
+      },
+    ],
+  },
+  rubric: {
+    mustUseAny: [["agent-browser", "Bash(agent-browser:*)", "Bash"]],
+    forbidden: ["browser_navigate", "browser_click", "workiq"],
+  },
+};
+
+/** The nine task scenarios that mirror the describer eval set. */
 export const nativeToolScenarios: BuilderScenario[] = [
   webToSpreadsheet,
   invoiceExtract,
@@ -511,4 +555,5 @@ export const nativeToolScenarios: BuilderScenario[] = [
   releaseNotes,
   windowsDeploy,
   leadToCrm,
+  agentPortalAutomation,
 ];

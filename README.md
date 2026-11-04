@@ -18,7 +18,7 @@ agent can reuse:
 - a **Skill**: a `SKILL.md` procedure an agent runs on demand, or
 - an **Automation**: the same procedure on a schedule or trigger.
 
-Both prefer the agent's **native tools** (like the `gh` CLI or `web_fetch`) over replaying
+Both prefer the agent's **native tools** (like the \`gh\` CLI, \`agent-browser\`, or \`web_fetch\`) over replaying
 UI clicks, and generalize from your one example, so recording yourself submitting *one*
 form can teach the agent to submit *all* of them.
 

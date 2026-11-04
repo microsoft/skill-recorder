@@ -203,9 +203,9 @@ test("real providers preserve versions, content, and the support matrix", () => 
   );
 
   const agentSkillSkill = registry.requireCatalogue("agent-skill", "skill");
-  assert.equal(agentSkillSkill.version, "2026-08-06");
+  assert.equal(agentSkillSkill.version, "2026-10-26");
   assert.equal(
     sha256(agentSkillSkill.content),
-    "27cb863efb3fe973d3b7d4e24359cf5297c1b30fdbc29c073878b57a6d5d8810",
+    "cd25e592e88dc4eaac24ae0eebcf1860a3edf795a482b9adf1c8cc1a3773e093",
   );
 });

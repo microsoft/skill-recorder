@@ -1,7 +1,6 @@
 import { CopilotClient, type CopilotSession } from "@github/copilot-sdk";
 
-import { COPILOT_SIGNED_OUT_ERROR } from "../../common/ipc";
-import { copilotConnectionOption, withStartupTimeout } from "../copilot-cli-path";
+import { aiConnection, connectAiClient, type AiRuntimeConfig } from "../ai-provider";
 import { createLogger } from "../logger";
 
 /**
@@ -24,12 +23,16 @@ export abstract class AgentBuilder<TLive extends BaseLive> {
   private client: CopilotClient | null = null;
   private clientStart: Promise<CopilotClient> | null = null;
   protected model: string | undefined;
+  protected runtime: AiRuntimeConfig | undefined;
   protected readonly live = new Map<string, TLive>();
   protected readonly active = new Set<string>();
   protected readonly log;
 
   /** @param name Used for logs and the "not signed in" / startup-timeout messages. */
-  constructor(private readonly name: string) {
+  constructor(
+    private readonly name: string,
+    private readonly connection: () => Promise<AiRuntimeConfig> = () => aiConnection.configuration(),
+  ) {
     this.log = createLogger(name);
   }
 
@@ -56,25 +59,22 @@ export abstract class AgentBuilder<TLive extends BaseLive> {
 
   async dispose(): Promise<void> {
     for (const [id] of this.live) await this.disposeLive(id);
-    if (this.client) await this.client.stop().catch(() => undefined);
+    if (this.client) await this.client.forceStop();
     this.client = null;
     this.clientStart = null;
+    this.model = undefined;
+    this.runtime = undefined;
   }
 
-  /** Start (once) and return the shared Copilot client, verifying it's signed in. */
+  /** Start (once) with the selected connection; verify sign-in only in GitHub mode. */
   protected async ensureClient(): Promise<CopilotClient> {
     if (this.client) return this.client;
     if (this.clientStart) return this.clientStart;
     this.clientStart = (async () => {
-      const client = new CopilotClient(copilotConnectionOption());
-      await withStartupTimeout(client.start(), `Copilot CLI (${this.name})`);
-      const auth = await client.getAuthStatus();
-      if (!auth.isAuthenticated) {
-        await client.stop().catch(() => undefined);
-        throw new Error(COPILOT_SIGNED_OUT_ERROR);
-      }
-      this.model = process.env.SKILL_RECORDER_MODEL || undefined;
-      this.log.info("Copilot ready", auth.login ? `as ${auth.login}` : "");
+      this.runtime = await this.connection();
+      const client = await connectAiClient(this.runtime, `Copilot CLI (${this.name})`);
+      this.model = this.runtime.byom ? this.runtime.session.model : process.env.SKILL_RECORDER_MODEL || undefined;
+      this.log.info("AI connection ready", this.runtime.byom ? "BYOM" : "GitHub");
       this.client = client;
       return client;
     })();

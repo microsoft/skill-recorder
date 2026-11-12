@@ -48,6 +48,8 @@ import { SkillReviewModal } from "./SkillReviewModal";
 import { initialSkillReviewState, SkillOperationGuard, skillReviewBusy, skillReviewReducer } from "./skill-review-state";
 import { SensitiveReview } from "./SensitiveReview";
 import { AnalysisRecovery, completeSignIn, type AnalysisRun } from "./analysis-recovery";
+import { AiConnectionButton, useAiConnection } from "./AiProviderDialog";
+import { AI_SETUP_REQUIRED, aiDestination } from "../common/ai-provider";
 
 export function Library() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -109,6 +111,7 @@ export function Library() {
   return (
     <div className="lib">
       <aside className="lib-list">
+        <AiConnectionButton />
         <div className="lib-list-head">
           <span className="eyebrow">Sessions</span>
           <span className="pill">{sessions.length}</span>
@@ -442,6 +445,7 @@ function AnalysisError({
   onSignInStart?: () => boolean;
   onSignInEnd?: (canceled: boolean) => void;
 }) {
+  const connection = useAiConnection();
   const [signIn, setSignIn] = useState<CopilotSignInResult | null>(null);
   const [waiting, setWaiting] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
@@ -521,7 +525,11 @@ function AnalysisError({
     }
   };
 
-  if (!isCopilotSignedOutError(error)) return <div className="analysis-error">{error}</div>;
+  if (!isCopilotSignedOutError(error) || connection.status?.mode === "byom") return <div className="analysis-error">
+    {isCopilotSignedOutError(error) ? "The AI connection is now BYOM. Try your action again." : error}{" "}
+    {(error.includes(AI_SETUP_REQUIRED) || connection.status?.mode === "byom") &&
+      <button className="row-action" onClick={() => void connection.configure()}>AI connection</button>}
+  </div>;
 
   return (
     <div className="analysis-error">
@@ -567,6 +575,7 @@ function AnalysisWorkspace({
   narrationStatus: NarrationStatus | null;
   onChanged: () => void | Promise<void>;
 }) {
+  const { ensureReady: ensureAiReady, status: aiStatus } = useAiConnection();
   const sessionId = summary.id;
   const imported = summary.imported;
   const [importDetails, setImportDetails] = useState(imported?.details ?? "");
@@ -760,8 +769,16 @@ function AnalysisWorkspace({
   const run = useCallback(async () => {
     if (signInPendingRef.current) return;
     const token = recovery.current.beginRun();
-    if (token) await executeRun(token);
-  }, [executeRun]);
+    if (!token) return;
+    try {
+      if (await ensureAiReady(true) && workspaceLive.current && recovery.current.accepts(token)) {
+        await executeRun(token);
+      } else recovery.current.finishRun(token, false);
+    } catch {
+      recovery.current.finishRun(token, false);
+      if (workspaceLive.current) setError("Could not prepare the AI connection. Try again.");
+    }
+  }, [executeRun, ensureAiReady]);
 
   const onSignInStart = useCallback(() => {
     signInPendingRef.current = true;
@@ -955,11 +972,12 @@ function AnalysisWorkspace({
               Analyze recording
             </button>
             <details className="analyze-disclosure">
-              <summary>What gets sent to GitHub Copilot</summary>
+              <summary>What gets sent to your AI provider</summary>
               <p>
+                Destination: {aiDestination(aiStatus)}.{" "}
                 {imported
-                  ? "When you choose Analyze, selected video frames, transcribed speech, and your additional details are sent to GitHub's cloud service for processing by GitHub Copilot. The imported media file stays on this computer. "
-                  : "When you choose Analyze, the event timeline (window and document titles, URLs, and clipboard previews), plus screen images, narration text, and other content you provide, are sent to GitHub's cloud service for processing by GitHub Copilot. "}
+                  ? "When you choose Analyze, selected video frames, transcribed speech, and your additional details are sent to the selected AI provider. The imported media file stays on this computer. "
+                  : "When you choose Analyze, the event timeline (window and document titles, URLs, and clipboard previews), plus screen images, narration text, and other content you provide, are sent to the selected AI provider. "}
                 <span className="cloud-analysis-caution">
                   Do not analyze a recording that may contain passwords, access tokens, API keys,
                   credentials, secrets, or other sensitive or confidential information.
@@ -1202,6 +1220,7 @@ function SkillBuilderView({
   hasSkill: boolean;
   onClose: () => void;
 }) {
+  const { ensureReady: ensureAiReady } = useAiConnection();
   const defaultPlacementFor = useCallback(
     (architecture: SkillArchitecture): SkillPlacement =>
       skillPlacementModel(skillTargetFor(architecture)).defaultPlacement,
@@ -1320,6 +1339,10 @@ function SkillBuilderView({
     flowVersion.current++;
     dispatch({ type: "start", phase: "planning", message: "Planning the skill…" });
     try {
+      if (!await ensureAiReady() || !mounted.current || !operations.current.isCurrent(operation)) {
+        if (mounted.current) dispatch({ type: "settle", phase: "ready" });
+        return;
+      }
       const res = await window.skillRecorder.buildSkill({ sessionId, architecture });
       if (!mounted.current || !operations.current.isCurrent(operation)) return;
       if (res.ok && res.plan) {
@@ -1335,17 +1358,24 @@ function SkillBuilderView({
     } finally {
       operations.current.finish(operation);
     }
-  }, [sessionId, architecture, invalidatePreview]);
+  }, [sessionId, architecture, invalidatePreview, ensureAiReady]);
 
   const review = useCallback(async () => {
     if (!plan) return;
-    dispatch({ type: "visibility", open: true });
-    if (previewRef.current) return;
+    if (previewRef.current) {
+      dispatch({ type: "visibility", open: true });
+      return;
+    }
     const operation = operations.current.begin();
     if (!operation) return;
     flowVersion.current++;
     dispatch({ type: "start", phase: "preparing", message: "Preparing SKILL.md preview…" });
     try {
+      if (!await ensureAiReady() || !mounted.current || !operations.current.isCurrent(operation)) {
+        if (mounted.current) dispatch({ type: "settle", phase: "plan" });
+        return;
+      }
+      dispatch({ type: "visibility", open: true });
       const res = await window.skillRecorder.prepareSkill(sessionId, plan);
       if (!mounted.current || !operations.current.isCurrent(operation)) {
         if (res.preview) void discardPreview(res.preview.id);
@@ -1364,7 +1394,7 @@ function SkillBuilderView({
     } finally {
       operations.current.finish(operation);
     }
-  }, [sessionId, plan, discardPreview]);
+  }, [sessionId, plan, discardPreview, ensureAiReady]);
 
   const place = useCallback(
     async (which: SkillPlacement) => {
@@ -1374,6 +1404,10 @@ function SkillBuilderView({
       flowVersion.current++;
       dispatch({ type: "start", phase: "creating", message: which === "export" ? "Exporting the skill…" : "Writing the skill…" });
       try {
+        if ((!previewRef.current && !await ensureAiReady()) || !mounted.current || !operations.current.isCurrent(operation)) {
+          if (mounted.current) dispatch({ type: "settle", phase: "plan" });
+          return;
+        }
         const res = await window.skillRecorder.createSkill(sessionId, plan, which, previewRef.current?.id);
         if (!mounted.current) return;
         if (res.ok && res.skill) {
@@ -1403,7 +1437,7 @@ function SkillBuilderView({
         operations.current.finish(operation);
       }
     },
-    [sessionId, plan],
+    [sessionId, plan, ensureAiReady],
   );
 
   const cancelRun = useCallback(async () => {
@@ -1621,6 +1655,7 @@ function AutomationBuilderView({
   hasAutomation: boolean;
   onClose: () => void;
 }) {
+  const { ensureReady: ensureAiReady } = useAiConnection();
   const [phase, setPhase] = useState<BuildPhase>(hasAutomation ? "loading" : "ready");
   const [architecture, setArchitecture] = useState<SkillArchitecture>(initialArch);
   const [plan, setPlan] = useState<AutomationPlan | null>(null);
@@ -1642,6 +1677,7 @@ function AutomationBuilderView({
 
   useEffect(() => {
     return () => {
+      canceled.current = true;
       if (inFlight.current) void window.skillRecorder.cancelAutomation(sessionId);
     };
   }, [sessionId]);
@@ -1673,40 +1709,49 @@ function AutomationBuilderView({
   }, [sessionId]);
 
   const runPlan = useCallback(async () => {
+    if (inFlight.current) return;
     canceled.current = false;
     inFlight.current = true;
     setError(null);
     setStatusLine("Planning the automation…");
     setPhase("planning");
-    const res = await window.skillRecorder.buildAutomation({ sessionId, architecture });
-    inFlight.current = false;
-    if (res.ok && res.plan) {
-      setPlan(res.plan);
-      setPhase("plan");
-    } else if (!canceled.current) {
-      setError(res.error ?? "Planning failed");
-      setPhase("ready");
-    }
-  }, [sessionId, architecture]);
+    try {
+      if (!await ensureAiReady() || canceled.current) {
+        if (!canceled.current) setPhase("ready");
+        return;
+      }
+      const res = await window.skillRecorder.buildAutomation({ sessionId, architecture });
+      if (canceled.current) return;
+      if (res.ok && res.plan) { setPlan(res.plan); setPhase("plan"); }
+      else { setError(res.error ?? "Planning failed"); setPhase("ready"); }
+    } catch {
+      if (!canceled.current) { setError("Could not plan the automation. Try again."); setPhase("ready"); }
+    } finally { inFlight.current = false; }
+  }, [sessionId, architecture, ensureAiReady]);
 
   const create = useCallback(async () => {
-    if (!plan) return;
+    if (!plan || inFlight.current) return;
     canceled.current = false;
     inFlight.current = true;
     setError(null);
     setStatusLine("Writing the automation…");
     setPhase("creating");
-    const res = await window.skillRecorder.createAutomation(sessionId, plan);
-    inFlight.current = false;
-    if (res.ok && res.automation) {
-      setBuiltName(res.automation.name);
-      setExportedPath(res.path ?? res.automation.exportedPath ?? "");
-      setPhase("done");
-    } else if (!canceled.current) {
-      setError(res.error ?? "Could not create the automation");
-      setPhase("plan");
-    }
-  }, [sessionId, plan]);
+    try {
+      if (!await ensureAiReady() || canceled.current) {
+        if (!canceled.current) setPhase("plan");
+        return;
+      }
+      const res = await window.skillRecorder.createAutomation(sessionId, plan);
+      if (canceled.current) return;
+      if (res.ok && res.automation) {
+        setBuiltName(res.automation.name);
+        setExportedPath(res.path ?? res.automation.exportedPath ?? "");
+        setPhase("done");
+      } else { setError(res.error ?? "Could not create the automation"); setPhase("plan"); }
+    } catch {
+      if (!canceled.current) { setError("Could not create the automation. Try again."); setPhase("plan"); }
+    } finally { inFlight.current = false; }
+  }, [sessionId, plan, ensureAiReady]);
 
   const cancelRun = useCallback(async () => {
     canceled.current = true;

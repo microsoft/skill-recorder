@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
+import { createAiSession, providerError, type AiRuntimeConfig } from "../ai-provider";
 
 import { approveAll, type CopilotSession } from "@github/copilot-sdk";
 
@@ -123,8 +124,11 @@ export class SkillBuilder extends AgentBuilder<LiveBuild> {
   private readonly previews = new Map<string, PreparedSkill>();
   private readonly operations = new Map<string, BuildOperation>();
 
-  constructor(private readonly emitProgress: (p: SkillBuildProgress) => void) {
-    super("SkillBuilder");
+  constructor(
+    private readonly emitProgress: (p: SkillBuildProgress) => void,
+    connection?: () => Promise<AiRuntimeConfig>,
+  ) {
+    super("SkillBuilder", connection);
   }
 
   /** Propose a plan (first pass) or refine the current one with NL feedback. */
@@ -294,7 +298,7 @@ export class SkillBuilder extends AgentBuilder<LiveBuild> {
       await live.copilot.sendAndWait(`${CREATE_PROMPT}\n\n${renderPlanForPrompt(plan)}`, TURN_TIMEOUT_MS);
     } catch (err) {
       await live.copilot.abort().catch(() => undefined);
-      throw new Error(`Skill build failed: ${msg(err)}`);
+      throw this.runtime?.byom ? providerError(err) : new Error(`Skill build failed: ${msg(err)}`);
     }
     this.requireActive(operation);
     const submission = live.holder.submission as SkillSubmission | undefined;
@@ -345,7 +349,7 @@ export class SkillBuilder extends AgentBuilder<LiveBuild> {
     const systemContent = `${SKILL_BUILDER_INSTRUCTIONS}\n\n${catalogue}`.trim();
 
     const client = await this.ensureClient();
-    const copilot = await client.createSession({
+    const copilot = await createAiSession(client, {
       systemMessage: { mode: "append", content: systemContent },
       tools,
       onPermissionRequest: approveAll,
@@ -354,7 +358,7 @@ export class SkillBuilder extends AgentBuilder<LiveBuild> {
       infiniteSessions: { enabled: false },
       availableTools: tools.map((t) => t.name),
       ...(this.model ? { model: this.model } : {}),
-    });
+    }, this.runtime);
 
     const live: LiveBuild = {
       sessionId,
@@ -379,7 +383,7 @@ export class SkillBuilder extends AgentBuilder<LiveBuild> {
       await live.copilot.sendAndWait(prompt, TURN_TIMEOUT_MS);
     } catch (err) {
       await live.copilot.abort().catch(() => undefined);
-      throw new Error(`Planning failed: ${msg(err)}`);
+      throw this.runtime?.byom ? providerError(err) : new Error(`Planning failed: ${msg(err)}`);
     }
     this.requireActive(operation);
     const plan = live.holder.plan;

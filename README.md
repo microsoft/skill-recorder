@@ -35,7 +35,7 @@ form can teach the agent to submit *all* of them.
 2. 🎛️ **Control.** While recording, a small always-on-top bar shows capture,
    microphone, and recorded-terminal state. Open the session-scoped terminal, mute,
    unmute, or switch mics, then finish or discard with confirmation.
-3. 🧠 **Analyze.** Click Analyze and GitHub Copilot reconstructs one overall intent and
+3. 🧠 **Analyze.** Click Analyze and your selected AI provider reconstructs one overall intent and
    an ordered list of steps. Review and edit until it reads right.
 4. ✨ **Create.** From an approved analysis, generate a reusable **Skill** and/or a
    scheduled **Automation**.
@@ -89,7 +89,7 @@ The original file is untouched. A local copy and derived artifacts are stored in
 Sessions, and deleting the session removes only that copy. Selecting a file does
 not send it to the cloud. Choosing Analyze sends selected frames, transcribed
 speech, and your details through the existing privacy-protection pipeline to
-GitHub Copilot. Debug exports include the imported media and details, just as
+your selected AI provider. Debug exports include the imported media and details, just as
 they include private data from live recordings. Only import recordings you are
 authorized to use, and keep sensitive/confidential content out of them.
 
@@ -111,8 +111,9 @@ verification.
 
 Skill Recorder is published as a **source release**: one command downloads a pinned Node.js
 runtime, builds the exact release commit on your machine, and adds a **Skill Recorder (Source)**
-app you can relaunch anytime. Nothing is installed globally. You'll need a GitHub account with
-**Copilot access**; the Copilot CLI ships with the app.
+app you can relaunch anytime. Nothing is installed globally. You'll need either a GitHub account with
+**Copilot access**, or a supported model provider's API key; the Copilot CLI ships
+with the app and powers both options.
 
 macOS is the primary target. Windows 11 (x64 and ARM64) is supported too (see
 [`WINDOWS-VALIDATION.md`](WINDOWS-VALIDATION.md)).
@@ -154,8 +155,10 @@ Advanced options, including running in the background on macOS or Ubuntu, are in
 
 1. **Grant Screen Recording.** On first launch, macOS asks for Screen Recording permission;
    grant it and you're ready to record.
-2. **Record, Analyze, Create.** Do your task, then Analyze. The first time you Analyze,
-   Skill Recorder offers **Sign in to Copilot** if you aren't signed in yet. Finish
+2. **Record, Analyze, Create.** Do your task, then Analyze. The first time AI is needed,
+   choose **Bring your own model** or **GitHub authentication**. This choice is
+   available to everyone, including Microsoft FTEs. Recording needs neither.
+   If you choose GitHub, Skill Recorder reuses a valid login or offers sign-in. Finish
    authorization in your browser; the app verifies sign-in and automatically retries
    the interrupted analysis once. There is no login terminal window to close.
    Canceling sign-in or leaving that analysis prevents the automatic retry.
@@ -190,9 +193,52 @@ or automation builder does not automatically repeat a build or installation.
 To inspect the script before running it, set install options, update, or uninstall, see
 [`INSTALL.md`](INSTALL.md).
 
+### Bring your own model
+
+Open **AI connection** in Sessions to configure or change your connection.
+BYOM uses the bundled Copilot SDK/CLI without GitHub login or a Copilot
+subscription. Model requests go to your selected endpoint and are billed by
+that provider; BYOM does not mean local/offline processing.
+
+| Provider | Required fields |
+| --- | --- |
+| Microsoft Foundry / Azure OpenAI (v1) | API key, full `/openai/v1/` base URL, deployment name |
+| Azure OpenAI (versioned) | API key, resource host without an API path, deployment name, Azure API version |
+| OpenAI | API key and model ID; the standard base URL is prefilled |
+| Anthropic | API key and model ID; the standard base URL is prefilled |
+| Custom OpenAI-compatible | API key, HTTPS base URL, model ID, supported API format |
+
+Use a model supporting **image input and tool calling**. **Advanced** selects
+Responses versus Chat Completions for compatible providers. **Test and save**
+sends a small, billable synthetic-image/tool test, never a recording. Custom
+endpoint support depends on actual protocol and model compatibility.
+Keyless local services and managed-identity authentication are not exposed by
+this first API-key flow.
+
+Keys are protected using the operating system's key storage on Windows 11
+(x64/ARM64), macOS, and Ubuntu with a secure desktop keyring. If secure storage
+is unavailable, the key-entry screen says:
+
+> Secure space is unavailable. The Key will be saved in-memory and will be re-asked next time.
+
+There is no extra step: BYOM still works for the current app session. Non-secret
+settings are remembered where possible. **Forget key** removes this app's stored
+and in-memory credential, not the key at your provider. Finish or cancel active
+AI work before changing connections. Saved recordings and outputs are preserved,
+but live conversations are reset. Keys are not included in debug exports.
+BYOM connection settings and SDK conversation state are stored separately from
+recordings in app data. Forgetting a key does not erase conversation history.
+
+For development, `npm run test:ai` covers configuration, protected/memory-only
+storage, and connection lifecycle. `npm run test:ai:runtime` exercises the bundled
+SDK/CLI against a local synthetic provider, including tool-image transport and
+credential persistence checks. Neither command needs a real API key or sends
+requests to a paid model. Native key-storage and live-provider release checks
+are described in [`WINDOWS-VALIDATION.md`](WINDOWS-VALIDATION.md#ai-connection-and-credential-smoke-checks).
+
 > ⚠️ **Keep secrets out of your recordings.** Don't record, type, paste, or narrate
 > passwords, tokens, API keys, or other confidential info. Choosing *Analyze* sends
-> recording data to GitHub's cloud. Skill Recorder reminds you before every recording.
+> recording data to your selected AI provider. Skill Recorder reminds you before every recording.
 > Details in [What gets captured](#what-gets-captured).
 
 ---
@@ -205,7 +251,7 @@ Recording, storage, frame extraction, and optional narration transcription all h
 **on your computer**; nothing leaves while you record. Only when you choose **Analyze**
 does Skill Recorder send the event timeline (window/document titles, URLs, clipboard
 previews, and terminal commands), extracted screen images, narration text, and bounded
-terminal-output excerpts requested during analysis to GitHub's cloud for Copilot to process.
+terminal-output excerpts requested during analysis to your selected AI provider for processing.
 When protection is enabled, terminal commands and the complete local terminal transcript
 participate in the same on-device secret/PII scan before any requested excerpt is returned.
 

@@ -161,8 +161,9 @@ export function WhatsRecorded({
         <section className="sheet-block">
           <h3>Where it's stored</h3>
           <ul>
-            <li>Everything is saved on this computer, in the app's own session folder.</li>
+            <li>Recordings are saved on this computer, in the app's own session folder.</li>
             <li>Recordings stay until you delete them. You can delete any recording from Sessions.</li>
+            <li>AI connection settings and SDK conversation state live outside recording folders. Forget key removes the credential, not recordings or conversation history.</li>
           </ul>
         </section>
 
@@ -174,7 +175,8 @@ export function WhatsRecorded({
               When you choose Analyze, the event timeline (window and document titles, URLs, and
               clipboard previews and recorded-terminal commands), plus screen images, narration
               text, and only the bounded terminal-output excerpts needed for analysis, are sent
-              to GitHub&apos;s cloud service and processed by GitHub Copilot.
+              to the AI provider you choose: GitHub Copilot or your configured BYOM endpoint.
+              The selected destination is shown in Sessions before analysis.
             </li>
             <li>
               By default, before anything is sent, this computer hides sensitive details like

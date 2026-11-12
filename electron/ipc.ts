@@ -29,6 +29,8 @@ import type {
   SkillPreviewResult,
 } from "../common/ipc";
 import { IPC } from "../common/ipc";
+import { AiConnectionError, type AiConnectionResult } from "../common/ai-provider";
+import { aiConnection } from "./ai-provider";
 import type { AutomationPlan } from "../common/automation";
 import type { NarrationLanguage } from "../common/narration";
 import type { ImportResult } from "../common/import";
@@ -74,6 +76,51 @@ export function registerIpc(
   canForceTerminalFinish: (sender: WebContents) => boolean,
   imports: ImportManager,
 ): void {
+  aiConnection.bind(
+    async () => { await Promise.all([describer.dispose(), builder.dispose(), automationBuilder.dispose()]); },
+    (status) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.isDestroyed()) window.webContents.send(IPC.aiConnectionChanged, status);
+      }
+    },
+  );
+  const handleAi = (channel: string, handler: Parameters<typeof ipcMain.handle>[1]) => {
+    ipcMain.handle(channel, async (event, ...args: unknown[]) => {
+      try { return await aiConnection.run(() => Promise.resolve(handler(event, ...args))); }
+      catch (error) {
+        if (error instanceof AiConnectionError) return { ok: false, error: error.message };
+        throw error;
+      }
+    });
+  };
+  ipcMain.handle(IPC.aiConnectionStatus, () => aiConnection.store.status());
+  const connectionAction = (
+    channel: string,
+    action: (event: Electron.IpcMainInvokeEvent, id: string, args: unknown[]) => Promise<AiConnectionResult>,
+  ) => ipcMain.handle(channel, async (event, id: unknown, ...args: unknown[]): Promise<AiConnectionResult> => {
+    if (typeof id !== "string" || !/^[a-zA-Z0-9-]{1,64}$/.test(id)) {
+      return { ok: false, code: "invalid-config", error: "Invalid connection attempt." };
+    }
+    const owner = event.sender.id;
+    const cancel = () => {
+      aiConnection.cancel(id, owner);
+      cancelCopilotSignIn(id, owner);
+    };
+    event.sender.once("destroyed", cancel);
+    try { return await action(event, id, args); }
+    finally { event.sender.removeListener("destroyed", cancel); }
+  });
+  connectionAction(IPC.aiConnectionSave, (event, id, args) =>
+    aiConnection.saveByom(id, event.sender.id, args[0], args[1]));
+  connectionAction(IPC.aiConnectionGitHub, (event, id) =>
+    aiConnection.useGitHub(id, event.sender.id, () =>
+      openCopilotSignIn(id, event.sender.id, BrowserWindow.fromWebContents(event.sender))));
+  connectionAction(IPC.aiConnectionForget, (event, id) => aiConnection.forget(id, event.sender.id));
+  ipcMain.handle(IPC.aiConnectionCancel, (event, id: unknown) => {
+    if (typeof id !== "string") throw new Error("Invalid connection attempt.");
+    aiConnection.cancel(id, event.sender.id);
+    cancelCopilotSignIn(id, event.sender.id);
+  });
   const sessionsChanged = () => {
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.isDestroyed()) window.webContents.send(IPC.sessionsChanged);
@@ -230,7 +277,7 @@ export function registerIpc(
   ipcMain.handle(IPC.status, () => recorder.status());
   ipcMain.handle(IPC.marker, (_event, note: string) => recorder.marker(note));
   ipcMain.handle(IPC.doctor, () => runDoctor());
-  app.once("before-quit", disposeCopilotSignIn);
+  app.once("before-quit", () => { aiConnection.dispose(); disposeCopilotSignIn(); });
   ipcMain.handle(IPC.copilotSignIn, async (event, attemptId: unknown) => {
     if (typeof attemptId !== "string" || !/^[a-zA-Z0-9-]{1,64}$/.test(attemptId)) {
       return { ok: false, status: "failed", error: "Invalid sign-in attempt." };
@@ -239,7 +286,8 @@ export function registerIpc(
     const cancel = () => cancelCopilotSignIn(attemptId, owner);
     event.sender.once("destroyed", cancel);
     try {
-      return await openCopilotSignIn(attemptId, owner, BrowserWindow.fromWebContents(event.sender));
+      return await aiConnection.run(() =>
+        openCopilotSignIn(attemptId, owner, BrowserWindow.fromWebContents(event.sender)));
     } finally {
       event.sender.removeListener("destroyed", cancel);
     }
@@ -327,7 +375,7 @@ export function registerIpc(
     return images ? { ...report, images } : report;
   };
 
-  ipcMain.handle(
+  handleAi(
     IPC.analyze,
     async (_event, sessionId?: string): Promise<AnalyzeResult> => {
       const id = resolveSessionId(sessionId);
@@ -386,7 +434,7 @@ export function registerIpc(
     },
   );
 
-  ipcMain.handle(
+  handleAi(
     IPC.analyzeFeedback,
     async (_event, input: AnalysisFeedbackInput): Promise<AnalyzeResult> => {
       if (!isValidSessionId(input?.sessionId)) return { ok: false, error: "Unknown session." };
@@ -515,7 +563,7 @@ export function registerIpc(
     },
   );
 
-  ipcMain.handle(IPC.buildSkill, async (_event, input: SkillBuildInput): Promise<SkillPlanResult> => {
+  handleAi(IPC.buildSkill, async (_event, input: SkillBuildInput): Promise<SkillPlanResult> => {
     if (!isValidSessionId(input?.sessionId)) return { ok: false, error: "Unknown session." };
     try {
       const plan = await builder.build(input);
@@ -527,7 +575,7 @@ export function registerIpc(
     }
   });
 
-  ipcMain.handle(
+  handleAi(
     IPC.prepareSkill,
     async (_event, sessionId: string, plan: SkillPlan): Promise<SkillPreviewResult> => {
       if (!isValidSessionId(sessionId)) return { ok: false, error: "Unknown session." };
@@ -550,7 +598,7 @@ export function registerIpc(
     return { ok: true };
   });
 
-  ipcMain.handle(
+  handleAi(
     IPC.createSkill,
     async (
       event,
@@ -610,7 +658,7 @@ export function registerIpc(
     return { ok: true };
   });
 
-  ipcMain.handle(
+  handleAi(
     IPC.buildAutomation,
     async (_event, input: AutomationBuildInput): Promise<AutomationPlanResult> => {
       if (!isValidSessionId(input?.sessionId)) return { ok: false, error: "Unknown session." };
@@ -625,7 +673,7 @@ export function registerIpc(
     },
   );
 
-  ipcMain.handle(IPC.createAutomation, async (_event, sessionId: string, plan?: AutomationPlan): Promise<AutomationCreateResult> => {
+  handleAi(IPC.createAutomation, async (_event, sessionId: string, plan?: AutomationPlan): Promise<AutomationCreateResult> => {
     if (!isValidSessionId(sessionId)) return { ok: false, error: "Unknown session." };
     try {
       const { automation, path: file } = await automationBuilder.create(sessionId, plan);

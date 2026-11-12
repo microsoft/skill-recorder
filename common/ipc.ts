@@ -12,6 +12,7 @@ import type {
 } from "./skill";
 import type { RecorderState } from "./types";
 import type { ImportDetails, ImportMetadata, ImportResult } from "./import";
+import type { AiConnectionResult, AiConnectionStatus, ByomConfig } from "./ai-provider";
 import type {
   SupportedShellId,
   TerminalActionResult,
@@ -125,7 +126,7 @@ export interface AnalyzeResult {
   error?: string;
   /**
    * Present when the on-device pre-send scan redacted potentially sensitive
-   * details before the session was sent to GitHub Copilot — masked values in the
+   * details before the session was sent to the selected AI provider — masked values in the
    * captured text, plus a count of on-screen regions blurred in frames. This is
    * purely informational — the analysis still ran and `ok` is unaffected. The
    * report carries only masked values + short redacted context, never raw values,
@@ -401,7 +402,7 @@ export type CopilotSignInResult =
     };
 
 /**
- * Message every Copilot-backed feature throws when the CLI has no stored credentials.
+ * Message GitHub-mode AI features throw when the CLI has no stored credentials.
  * Skill Recorder ships its own Copilot CLI in `node_modules`, so there is usually no
  * global `copilot` command to run — the renderer matches this message to offer the
  * in-app sign-in affordance instead.
@@ -469,6 +470,12 @@ export const IPC = {
   doctor: "doctor:check",
   copilotSignIn: "copilot:sign-in",
   copilotSignInCancel: "copilot:sign-in-cancel",
+  aiConnectionStatus: "ai:status",
+  aiConnectionChanged: "ai:changed",
+  aiConnectionGitHub: "ai:github",
+  aiConnectionSave: "ai:save",
+  aiConnectionForget: "ai:forget",
+  aiConnectionCancel: "ai:cancel",
   statusChanged: "recorder:status-changed",
   recordingPrivacyReviewed: "recorder:privacy-reviewed",
   recordingPrivacyWarningRequested: "recorder:privacy-warning-requested",
@@ -559,6 +566,12 @@ export interface SkillRecorderApi {
    */
   copilotSignIn(attemptId: string): Promise<CopilotSignInResult>;
   cancelCopilotSignIn(attemptId: string): Promise<void>;
+  aiConnectionStatus(): Promise<AiConnectionStatus>;
+  onAiConnectionChanged(cb: (status: AiConnectionStatus) => void): () => void;
+  aiConnectionGitHub(attemptId: string): Promise<AiConnectionResult>;
+  aiConnectionSave(attemptId: string, profile: ByomConfig, apiKey?: string): Promise<AiConnectionResult>;
+  aiConnectionForget(attemptId: string): Promise<AiConnectionResult>;
+  aiConnectionCancel(attemptId: string): Promise<void>;
   onStatusChanged(cb: (status: RecorderStatus) => void): () => void;
   openTerminal(): Promise<TerminalActionResult>;
   terminalReady(): Promise<TerminalActionResult>;

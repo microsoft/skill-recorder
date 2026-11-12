@@ -8,6 +8,8 @@ import test from "node:test";
 import AdmZip from "adm-zip";
 
 import { writeDebugBundle } from "./debug-bundle";
+import { AiProviderStore } from "./ai-provider-store";
+import { parseByomConfig } from "../common/ai-provider";
 
 test("writeDebugBundle zips the whole session under session/ next to debug-info.json", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "skill-recorder-debug-"));
@@ -55,4 +57,35 @@ test("writeDebugBundle refuses a traversal session id", async () => {
     async () => writeDebugBundle("../escape", path.join(tmpdir(), "x.zip"), {}),
     /Invalid session id/,
   );
+});
+
+test("debug export excludes app-level provider credentials and runtime state", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "skill-recorder-debug-key-"));
+  const previousRoot = process.env.SKILL_RECORDER_SESSIONS_DIR;
+  const sessions = path.join(root, "sessions");
+  process.env.SKILL_RECORDER_SESSIONS_DIR = sessions;
+  try {
+    const store = new AiProviderStore(() => path.join(root, "ai-connection.json"), {
+      available: () => true,
+      encrypt: () => Buffer.from("protected-test-credential"),
+      decrypt: () => "test-only-credential",
+    });
+    await store.saveByom(parseByomConfig({
+      provider: "openai", baseUrl: "https://api.openai.com/v1", model: "test-model", wireApi: "responses",
+    }), "test-only-credential");
+    await mkdir(path.join(sessions, "test"), { recursive: true });
+    await writeFile(path.join(sessions, "test", "session.json"), '{"id":"test"}');
+    await mkdir(path.join(root, "ai-runtime"));
+    await writeFile(path.join(root, "ai-runtime", "test.log"), "private runtime");
+    const dest = path.join(root, "bundle.zip");
+    await writeDebugBundle("test", dest, {});
+    const entries = new AdmZip(dest).getEntries();
+    assert.deepEqual(entries.filter((entry) => !entry.isDirectory).map((entry) => entry.entryName).sort(),
+      ["debug-info.json", "session/session.json"]);
+    assert.equal(entries.some((entry) => entry.getData().includes(Buffer.from("credential"))), false);
+  } finally {
+    if (previousRoot === undefined) delete process.env.SKILL_RECORDER_SESSIONS_DIR;
+    else process.env.SKILL_RECORDER_SESSIONS_DIR = previousRoot;
+    await rm(root, { recursive: true, force: true });
+  }
 });

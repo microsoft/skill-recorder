@@ -216,9 +216,12 @@ On clean supported machines:
 
 1. Download each installer script by the full release commit SHA.
 2. Compare its SHA-256 with the release notes.
-3. Run with `SKILL_RECORDER_NO_LAUNCH=1`.
+3. Run with `SKILL_RECORDER_NO_LAUNCH=1` on macOS/Ubuntu. The Windows installer
+   never launches the app; verify its manual-launch completion notice instead.
 4. Confirm dependency installation and the platform license inventory succeed.
-5. Launch Skill Recorder and exercise recording, analysis, and skill creation.
+5. Quit any running copies, launch Skill Recorder, and exercise recording,
+   analysis, and skill creation. Launch again while idle and while recording:
+   it should reveal the existing recorder or controls, not start another copy.
 6. Confirm update and uninstall instructions in `INSTALL.md`.
 
 Check that the GitHub Release tag still resolves to the recorded commit and

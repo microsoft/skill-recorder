@@ -23,7 +23,6 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 $Commit = $env:SKILL_RECORDER_COMMIT
 $InstallRoot = $env:SKILL_RECORDER_INSTALL_ROOT
-$skipLaunch = $env:SKILL_RECORDER_NO_LAUNCH -eq "1"
 $createDesktopShortcut = $env:SKILL_RECORDER_NO_DESKTOP_SHORTCUT -ne "1"
 
 function Write-Step {
@@ -610,6 +609,72 @@ function New-SourceShortcut {
   return $shortcutPath
 }
 
+function Write-InstallCompletion {
+  param(
+    [AllowNull()][string]$StartMenuShortcut,
+    [AllowNull()][string]$DesktopShortcut,
+    [Parameter(Mandatory)][bool]$DesktopShortcutRequested,
+    [Parameter(Mandatory)][string]$ElectronExecutable,
+    [Parameter(Mandatory)][string]$SourceDirectory
+  )
+
+  Write-Host ""
+  if ($StartMenuShortcut) {
+    Write-Host "  Start Menu : $StartMenuShortcut"
+  } else {
+    Write-Host "  Start Menu : not created (see the warning above)"
+  }
+  if (-not $DesktopShortcutRequested) {
+    Write-Host "  Desktop    : skipped because SKILL_RECORDER_NO_DESKTOP_SHORTCUT=1"
+  } elseif ($DesktopShortcut) {
+    Write-Host "  Desktop    : $DesktopShortcut"
+  } else {
+    Write-Host "  Desktop    : not created (see the warning above)"
+  }
+
+  $launchInstruction = "3. Run the manual launch command shown below."
+  if ($StartMenuShortcut -and $DesktopShortcut) {
+    $launchInstruction = "3. Open 'Skill Recorder (Source)' from the desktop or Start menu."
+  } elseif ($StartMenuShortcut) {
+    $launchInstruction = "3. Open 'Skill Recorder (Source)' from the Start menu."
+  } elseif ($DesktopShortcut) {
+    $launchInstruction = "3. Open 'Skill Recorder (Source)' from the desktop."
+  }
+
+  $lines = @(
+    "SKILL RECORDER INSTALLED",
+    "",
+    "Before opening the installed version:",
+    "1. Finish recording and choose Quit in ALL running copies.",
+    "2. Wait for them to finish closing.",
+    $launchInstruction,
+    "",
+    "Skill Recorder was not started automatically.",
+    "Reopen the app, not the installer."
+  )
+  $width = ($lines | Measure-Object -Property Length -Maximum).Maximum
+  $border = "@" * ($width + 4)
+  Write-Host ""
+  Write-Host $border
+  Write-Host $border
+  foreach ($line in $lines) {
+    Write-Host ("@ " + $line.PadRight($width) + " @")
+  }
+  Write-Host $border
+  Write-Host $border
+
+  if (-not $StartMenuShortcut -and -not $DesktopShortcut) {
+    $executableLiteral = "'" + $ElectronExecutable.Replace("'", "''") + "'"
+    $sourceLiteral = "'" + $SourceDirectory.Replace("'", "''") + "'"
+    $sourceArgument = '"' + $SourceDirectory + '"'
+    $argumentLiteral = "'" + $sourceArgument.Replace("'", "''") + "'"
+    Write-Host ""
+    Write-Host "After quitting all running copies, run:"
+    Write-Host "Start-Process -FilePath $executableLiteral -ArgumentList $argumentLiteral -WorkingDirectory $sourceLiteral"
+  }
+  Write-Host ""
+}
+
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
   throw "install.ps1 supports Windows only. Use the manual source instructions in INSTALL.md elsewhere."
 }
@@ -927,28 +992,10 @@ Write-Step "Installed commit $Commit at $sourceDirectory"
 Write-Step "License materials remain in the source tree, dependency packages, and .compliance directory."
 Write-Warning "This locally generated build is for local execution only. Do not redistribute it."
 
-Write-Host ""
-Write-Host "Skill Recorder is ready. Open it any time from these shortcuts:"
-if ($null -ne $startMenuShortcut) {
-  Write-Host "  Start Menu : $startMenuShortcut"
-} else {
-  Write-Host "  Start Menu : not created (see the warning above)"
-}
-if (-not $createDesktopShortcut) {
-  Write-Host "  Desktop    : skipped because SKILL_RECORDER_NO_DESKTOP_SHORTCUT=1"
-} elseif ($null -ne $desktopShortcut) {
-  Write-Host "  Desktop    : $desktopShortcut"
-} else {
-  Write-Host "  Desktop    : not created (see the warning above)"
-}
-Write-Host "Each entry is named 'Skill Recorder (Source)' and starts this installed revision."
-Write-Host ""
-
-if (-not $skipLaunch) {
-  Write-Step "Launching Skill Recorder."
-  Start-Process `
-    -FilePath $electronExecutable `
-    -ArgumentList ('"{0}"' -f $sourceDirectory) `
-    -WorkingDirectory $sourceDirectory | Out-Null
-}
+Write-InstallCompletion `
+  -StartMenuShortcut $startMenuShortcut `
+  -DesktopShortcut $desktopShortcut `
+  -DesktopShortcutRequested $createDesktopShortcut `
+  -ElectronExecutable $electronExecutable `
+  -SourceDirectory $sourceDirectory
 }

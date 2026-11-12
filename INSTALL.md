@@ -74,6 +74,13 @@ The source installers:
    Launchpad, and the Dock) on macOS; and a launcher plus desktop entry on Ubuntu.
 9. Print a final confirmation listing the shortcuts that were created.
 
+On Windows, installation **does not launch the app**, even on a first install.
+The terminal shows an `@`-bordered completion notice: finish recording, choose
+**Quit** in all running copies, wait for them to close, then open **Skill Recorder
+(Source)** using the shortcut. If neither shortcut could be created, the notice
+provides a manual launch command instead. macOS and Ubuntu retain automatic
+launch unless disabled with `SKILL_RECORDER_NO_LAUNCH=1`.
+
 No administrator access, global Node.js installation, or global Copilot CLI
 installation is required. AI features require network access and either GitHub
 Copilot authentication/entitlement or a supported model provider's API key.
@@ -139,7 +146,7 @@ rm -f "$script"
 | --- | --- | --- |
 | `SKILL_RECORDER_COMMIT` | all | Required full 40-character source commit |
 | `SKILL_RECORDER_INSTALL_ROOT` | all | Override the per-user source/runtime directory |
-| `SKILL_RECORDER_NO_LAUNCH=1` | all | Install and validate without launching |
+| `SKILL_RECORDER_NO_LAUNCH=1` | macOS, Ubuntu | Install and validate without launching; Windows never auto-launches |
 | `SKILL_RECORDER_NO_DESKTOP_SHORTCUT=1` | Windows | Create only the Start Menu shortcut |
 | `SKILL_RECORDER_DETACHED=1` | macOS, Ubuntu | Launch in the background with file logging |
 | `SKILL_RECORDER_LOG_KEEP` | macOS, Ubuntu | Number of detached launch logs to retain; default `5` |
@@ -158,7 +165,8 @@ and build checks.
 
 Running the Windows command again with the same commit does not download or
 rebuild anything. The installer verifies the existing `versions/<commit>`
-installation, refreshes the Start Menu and desktop shortcuts, and launches.
+installation, refreshes the Start Menu and desktop shortcuts, and prints the
+manual launch instructions without starting the app.
 
 If an earlier attempt failed part-way, the portable Node.js archive and the
 source archive it had already fetched are kept in `<install root>\cache` and
@@ -180,7 +188,14 @@ installer:
   script directly.
 
 Each entry runs the current launcher, so it always starts the most recently
-installed revision.
+installed revision when no copy is already running. New revisions share a
+single-instance lock: another launch reveals the existing recorder or recording
+controls without starting or stopping a recording. If a different revision is
+already running, quit it before launching the newly installed one.
+
+Legacy revisions without that lock can still run alongside a newer revision.
+The Windows completion notice is a manual handover instruction, not automatic
+detection or shutdown of those older copies.
 
 ## Manual developer setup
 
@@ -345,6 +360,10 @@ patches, hashes, and relinking instructions required by the bundled libraries.
 ## Updating and uninstalling
 
 To update, rerun the source installer with the new release's full commit SHA.
+On Windows, the installer leaves running copies untouched and does not launch
+the new revision. Finish recording, choose **Quit** in every running copy, wait
+for shutdown to finish, then use the refreshed shortcut to open the installed
+revision. Do not rerun the installer just to reopen the app.
 Test the new revision before deleting an older revision.
 
 ### Windows uninstall

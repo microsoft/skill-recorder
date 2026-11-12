@@ -93,7 +93,7 @@ export function registerIpc(
       }
     });
   };
-  ipcMain.handle(IPC.aiConnectionStatus, () => aiConnection.store.status());
+  ipcMain.handle(IPC.aiConnectionStatus, () => aiConnection.status());
   const connectionAction = (
     channel: string,
     action: (event: Electron.IpcMainInvokeEvent, id: string, args: unknown[]) => Promise<AiConnectionResult>,

@@ -23,6 +23,8 @@ if ($parseErrors.Count -ne 0) {
 }
 
 $helperNames = @(
+  "Write-Step",
+  "Write-InstallCompletion",
   "ConvertTo-ExtendedLengthPath",
   "Move-DirectoryTree",
   "Remove-DirectoryTree",
@@ -50,6 +52,139 @@ $helperSource = @(
   }
 )
 . ([scriptblock]::Create($helperSource -join [Environment]::NewLine))
+
+& {
+  $messages = New-Object 'System.Collections.Generic.List[string]'
+  function Write-Host {
+    param([object]$Object)
+    $messages.Add([string]$Object)
+  }
+  function Start-Process { throw "Installation must not launch Skill Recorder." }
+
+  $source = 'C:\Users\O''Brien\$literal\Skill Recorder'
+  $executable = Join-Path $source "node_modules\electron\dist\electron.exe"
+  foreach ($shortcuts in @(
+    @{ Start = "start.lnk"; Desktop = "desktop.lnk"; Requested = $true; Location = "desktop or Start menu" },
+    @{ Start = "start.lnk"; Desktop = $null; Requested = $false; Location = "Start menu" },
+    @{ Start = $null; Desktop = "desktop.lnk"; Requested = $true; Location = "desktop" },
+    @{ Start = $null; Desktop = $null; Requested = $true; Location = "manual launch command" }
+  )) {
+    $messages.Clear()
+    Write-InstallCompletion `
+      -StartMenuShortcut $shortcuts.Start `
+      -DesktopShortcut $shortcuts.Desktop `
+      -DesktopShortcutRequested $shortcuts.Requested `
+      -ElectronExecutable $executable `
+      -SourceDirectory $source
+    $rectangle = @($messages | Where-Object { $_ -like "@*" })
+    if (
+      @($rectangle | Where-Object { $_ -match "^@+$" }).Count -ne 4 -or
+      @($rectangle | Where-Object { $_.Length -ne $rectangle[0].Length }).Count
+    ) {
+      throw "The completion notice must have aligned sides and double top/bottom borders."
+    }
+    $instruction = @($messages | Where-Object { $_ -match "^@ 3\." })
+    if ($instruction.Count -ne 1 -or $instruction[0] -notlike "*$($shortcuts.Location)*") {
+      throw "Completion did not direct the user to an available launch method."
+    }
+
+    $commands = @($messages | Where-Object { $_ -like "Start-Process *" })
+    if ($shortcuts.Start -or $shortcuts.Desktop) {
+      if ($commands.Count -ne 0) { throw "A working shortcut does not need a fallback command." }
+    } else {
+      if ($commands.Count -ne 1) { throw "Missing the manual launch fallback." }
+      & {
+        function Start-Process {
+          param([string]$FilePath, [string]$ArgumentList, [string]$WorkingDirectory)
+          if (
+            $FilePath -cne $executable -or
+            $ArgumentList -cne ('"' + $source + '"') -or
+            $WorkingDirectory -cne $source
+          ) {
+            throw "The manual command did not preserve paths containing spaces, quotes, and dollar signs."
+          }
+        }
+        & ([scriptblock]::Create($commands[0]))
+      }
+    }
+  }
+}
+
+# Exercise the installer's reuse path without downloads, native signatures, or
+# real shortcuts. Keep the actual top-level flow and completion code.
+$installerBody = $installerAst.Extent.Text
+foreach ($definition in ($functionDefinitions | Sort-Object { $_.Extent.StartOffset } -Descending)) {
+  $installerBody = $installerBody.Remove(
+    $definition.Extent.StartOffset,
+    $definition.Extent.EndOffset - $definition.Extent.StartOffset
+  )
+}
+& {
+  $fixtureRoot = Join-Path ([IO.Path]::GetTempPath()) ("skill-recorder-reuse-" + [guid]::NewGuid().ToString("N"))
+  $fixtureCommit = "a" * 40
+  $fixtureSource = Join-Path (Join-Path $fixtureRoot "versions") $fixtureCommit
+  $fixtureElectron = Join-Path $fixtureSource "electron.exe"
+  $messages = New-Object 'System.Collections.Generic.List[string]'
+  $shortcutTargets = New-Object 'System.Collections.Generic.List[string]'
+  $savedEnvironment = @{}
+  foreach ($name in @(
+    "SKILL_RECORDER_COMMIT", "SKILL_RECORDER_INSTALL_ROOT",
+    "SKILL_RECORDER_NO_LAUNCH", "SKILL_RECORDER_NO_DESKTOP_SHORTCUT"
+  )) {
+    $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+  }
+  function Write-Host {
+    param([object]$Object)
+    $messages.Add([string]$Object)
+  }
+  function Write-Warning { param([string]$Message) }
+  function Get-WindowsArchitecture { return "x64" }
+  function Get-ElectronExecutable { return $fixtureElectron }
+  function Assert-RequiredPaths {}
+  function Assert-TrustedSignature {}
+  function Get-ShortcutFolder {
+    param([string]$SpecialFolder, [string]$Description)
+    return (Join-Path $fixtureRoot $SpecialFolder)
+  }
+  function New-SourceShortcut {
+    param([string]$Folder, [string]$SourceDirectory, [string]$ElectronExecutable)
+    $shortcutTargets.Add($SourceDirectory)
+    return (Join-Path $Folder "Skill Recorder (Source).lnk")
+  }
+  function Start-Process { throw "Reusing an installation must not launch an application." }
+
+  try {
+    New-Item -ItemType Directory -Path $fixtureSource -Force | Out-Null
+    $lockfile = Join-Path $fixtureSource "package-lock.json"
+    Set-Content -LiteralPath $lockfile -Value "{}" -Encoding ASCII
+    Set-Content -LiteralPath $fixtureElectron -Value "unexecuted test fixture" -Encoding ASCII
+    @{
+      commit = $fixtureCommit
+      packageLockSha256 = (Get-FileHash -LiteralPath $lockfile).Hash.ToLowerInvariant()
+      electronExecutableSha256 = (Get-FileHash -LiteralPath $fixtureElectron).Hash.ToLowerInvariant()
+    } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $fixtureSource ".skill-recorder-install.json")
+    $env:SKILL_RECORDER_COMMIT = $fixtureCommit
+    $env:SKILL_RECORDER_INSTALL_ROOT = $fixtureRoot
+    $env:SKILL_RECORDER_NO_DESKTOP_SHORTCUT = "0"
+    foreach ($noLaunch in @($null, "1")) {
+      [Environment]::SetEnvironmentVariable("SKILL_RECORDER_NO_LAUNCH", $noLaunch, "Process")
+      $messages.Clear()
+      $shortcutTargets.Clear()
+      & ([scriptblock]::Create($installerBody))
+      if ($shortcutTargets.Count -ne 2 -or @($shortcutTargets | Where-Object { $_ -ne $fixtureSource }).Count) {
+        throw "Reusing an installation did not refresh both shortcuts to the selected revision."
+      }
+      if (-not ($messages -match "SKILL RECORDER INSTALLED") -or -not ($messages -match "Quit in ALL running copies")) {
+        throw "Reusing an installation omitted the manual handover notice."
+      }
+    }
+  } finally {
+    foreach ($name in $savedEnvironment.Keys) {
+      [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], "Process")
+    }
+    Remove-DirectoryTree -Path $fixtureRoot
+  }
+}
 
 $uncPath = ConvertTo-ExtendedLengthPath -Path "\\server\share\folder"
 if ($uncPath -ne "\\?\UNC\server\share\folder") {
@@ -295,4 +430,4 @@ try {
   Remove-DirectoryTree -Path $testRoot
 }
 
-Write-Host "Windows installer filesystem tests passed."
+Write-Host "Windows installer tests passed."

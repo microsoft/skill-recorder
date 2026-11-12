@@ -129,8 +129,12 @@ follow these steps:
 2. Open **PowerShell** from the Windows Start menu, or **Terminal** on macOS or
    Ubuntu. Paste the command and press **Enter**.
 3. Keep that window open while installation completes. The installer downloads
-   what it needs, builds the app on your computer, creates shortcuts, and launches
-   Skill Recorder. The first installation can take several minutes.
+   what it needs, builds the app on your computer, and creates shortcuts.
+   **On Windows**, follow the completion notice: finish recording, choose **Quit**
+   in every running copy, wait for them to close, then open **Skill Recorder
+   (Source)** from the desktop or Start menu. Windows does not launch the app
+   automatically. On macOS or Ubuntu, the installer launches Skill Recorder.
+   The first installation can take several minutes.
 
 > [!IMPORTANT]
 > **Copy the command from the release page, not a template from the technical docs.**
@@ -148,6 +152,9 @@ organization's policies.
 **Open it again later:** use **Skill Recorder (Source)** on your Windows desktop or
 Start Menu; on macOS, find it in `~/Applications`, Spotlight, or Launchpad; on
 Ubuntu, use the matching application entry. You do not need to reinstall each time.
+Launching again reveals the existing recorder or recording controls instead of
+starting another copy. Older revisions without this protection must be quit
+manually before opening an updated revision.
 Advanced options, including running in the background on macOS or Ubuntu, are in
 [`INSTALL.md`](INSTALL.md#commit-pinned-one-line-installation).
 

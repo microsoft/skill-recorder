@@ -28,6 +28,7 @@ import { SensitiveModelManager } from "./sensitive/model-manager";
 import { RecorderController } from "./recorder/controller";
 import { RecordingPrivacySession } from "./recording-privacy";
 import { deleteSession } from "./sessions";
+import { registerSingleInstance } from "./single-instance";
 import { SkillBuilder } from "./skillbuilder/builder";
 import { AutomationBuilder } from "./automationbuilder/builder";
 import { createTray } from "./tray";
@@ -46,6 +47,17 @@ import {
   redockLibrary,
   setRecordingControlsExpanded,
 } from "./window";
+
+const instanceReady = registerSingleInstance(app, {
+  isQuitting: () => quitReady || quitTask !== null,
+  isRecording: () => recorder.state === "recording",
+  showRecorder: () => { showRecorderWindow(); },
+  showRecordingControls,
+});
+if (!instanceReady) {
+  // Only this uninitialized duplicate exits; the running instance keeps its work.
+  app.exit(0);
+}
 
 const log = createLogger("Main");
 
@@ -294,6 +306,7 @@ function showRecorderWindow(): BrowserWindow {
   if (!recorderWindow || recorderWindow.isDestroyed()) {
     recorderWindow = createRecorderWindow();
   }
+  if (recorderWindow.isMinimized()) recorderWindow.restore();
   recorderWindow.show();
   recorderWindow.focus();
   return recorderWindow;
@@ -551,13 +564,7 @@ app.whenReady().then(async () => {
     log.warn("Global shortcut registration failed");
   }
 
-  app.on("activate", () => {
-    if (recorder.state === "recording") {
-      showRecordingControls();
-      return;
-    }
-    showRecorderWindow();
-  });
+  instanceReady?.();
 });
 
 app.on("window-all-closed", () => {

@@ -13,6 +13,10 @@ import { COPILOT_SIGNED_OUT_ERROR, type CopilotSignInResult } from "../common/ip
 import { AiProviderStore, secureStorageAvailable } from "./ai-provider-store";
 import { copilotConnectionOption, withStartupTimeout } from "./copilot-cli-path";
 import { abortable } from "./copilot-signin-flow";
+import { verifyCopilotAuthentication } from "./copilot-signin-auth";
+import { createLogger } from "./logger";
+
+const log = createLogger("AIConnection");
 
 export interface AiRuntimeConfig {
   client: CopilotClientOptions;
@@ -140,6 +144,9 @@ export async function testByomConnection(config: AiRuntimeConfig, signal: AbortS
 
 export class AiConnectionService {
   private active = 0;
+  private initialization: Promise<void> | undefined;
+  private migrationWarning: string | undefined;
+  private readonly lifetime = new AbortController();
   private change: { id: string; owner: number; controller: AbortController } | undefined;
   private reset: () => Promise<void> = async () => {};
   private notify: (status: AiConnectionStatus) => void = () => {};
@@ -148,6 +155,8 @@ export class AiConnectionService {
     readonly store: AiProviderStore,
     private readonly runtimeDirectory: () => string,
     private readonly probe = testByomConnection,
+    private readonly checkExistingGitHubAuth = (signal: AbortSignal) =>
+      verifyCopilotAuthentication(() => new CopilotClient(copilotConnectionOption()), signal),
   ) {}
 
   bind(reset: () => Promise<void>, notify: (status: AiConnectionStatus) => void): void {
@@ -162,8 +171,34 @@ export class AiConnectionService {
     finally { this.active--; }
   }
 
-  async configuration(): Promise<AiRuntimeConfig> {
+  private initialize(): Promise<void> {
+    return this.initialization ??= (async () => {
+      const status = await this.store.status();
+      if (status.mode !== null || status.profile || status.warning) return;
+      try {
+        if (await this.checkExistingGitHubAuth(this.lifetime.signal)) {
+          this.lifetime.signal.throwIfAborted();
+          await this.store.select("github");
+        }
+      } catch {
+        if (this.lifetime.signal.aborted) return;
+        this.migrationWarning =
+          "Could not restore an existing GitHub connection automatically. Choose GitHub authentication to retry, or bring your own model.";
+        log.warn(this.migrationWarning);
+      }
+    })();
+  }
+
+  async status(): Promise<AiConnectionStatus> {
+    await this.initialize();
     const status = await this.store.status();
+    return status.mode === null && this.migrationWarning
+      ? { ...status, warning: status.warning ?? this.migrationWarning }
+      : status;
+  }
+
+  async configuration(): Promise<AiRuntimeConfig> {
+    const status = await this.status();
     if (!aiConnectionReady(status)) throw new AiConnectionError("setup", AI_SETUP_REQUIRED);
     if (status.mode === "github") return githubRuntimeConfig();
     const profile = status.profile!;
@@ -178,11 +213,18 @@ export class AiConnectionService {
     if (this.change?.id === id && this.change.owner === owner) this.change.controller.abort();
   }
 
-  dispose(): void { this.change?.controller.abort(); }
+  dispose(): void {
+    this.lifetime.abort();
+    this.change?.controller.abort();
+  }
 
   private async mutate(
     id: string, owner: number, operation: (signal: AbortSignal) => Promise<AiConnectionStatus>,
   ): Promise<AiConnectionResult> {
+    // Finish an in-flight upgrade check before saving an explicit choice. An
+    // explicit choice made first must never trigger or be overwritten by migration.
+    if (this.initialization) await this.initialization;
+    else this.initialization = Promise.resolve();
     if (this.active || this.change) return { ok: false, code: "busy", error: "Finish or cancel current AI work before changing its connection." };
     const controller = new AbortController();
     this.change = { id, owner, controller };

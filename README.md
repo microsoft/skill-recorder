@@ -155,9 +155,12 @@ Advanced options, including running in the background on macOS or Ubuntu, are in
 
 1. **Grant Screen Recording.** On first launch, macOS asks for Screen Recording permission;
    grant it and you're ready to record.
-2. **Record, Analyze, Create.** Do your task, then Analyze. The first time AI is needed,
-   choose **Bring your own model** or **GitHub authentication**. This choice is
-   available to everyone, including Microsoft FTEs. Recording needs neither.
+2. **Record, Analyze, Create.** Do your task, then Analyze. When no AI connection
+   is configured, an existing GitHub Copilot login is recognized and reused
+   automatically, including after an upgrade from 0.8.0. Otherwise, choose
+   **Bring your own model** or **GitHub authentication** the first time AI is needed.
+   Both options remain available to everyone, including Microsoft FTEs, through
+   **AI connection** in Sessions. Recording needs neither.
    If you choose GitHub, Skill Recorder reuses a valid login or offers sign-in. Finish
    authorization in your browser; the app verifies sign-in and automatically retries
    the interrupted analysis once. There is no login terminal window to close.

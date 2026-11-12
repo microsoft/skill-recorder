@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -11,17 +11,109 @@ import { AiConnectionService, byomRuntimeConfig, connectAiClient, createAiSessio
 const profile = parseByomConfig({ provider: "openai", baseUrl: "https://api.openai.com/v1", model: "my-deployment", wireApi: "responses" });
 const key = "test-only-key";
 
-async function fixture(t: TestContext, probe?: (config: AiRuntimeConfig, signal: AbortSignal) => Promise<void>) {
+async function fixture(
+  t: TestContext,
+  probe?: (config: AiRuntimeConfig, signal: AbortSignal) => Promise<void>,
+  checkExistingGitHubAuth: (signal: AbortSignal) => Promise<boolean> = async () => false,
+) {
   const dir = await mkdtemp(path.join(os.tmpdir(), "ai-runtime-test-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
-  const store = new AiProviderStore(() => path.join(dir, "connection.json"), {
+  const file = path.join(dir, "connection.json");
+  const store = new AiProviderStore(() => file, {
     available: () => false,
     encrypt: () => { throw new Error("unavailable"); },
     decrypt: () => { throw new Error("unavailable"); },
   });
-  const service = new AiConnectionService(store, () => path.join(dir, "runtime"), probe ?? (async () => {}));
-  return { store, service };
+  const service = new AiConnectionService(store, () => path.join(dir, "runtime"), probe ?? (async () => {}), checkExistingGitHubAuth);
+  return { store, service, file };
 }
+
+test("upgrading without a provider preference restores an existing GitHub login once", async (t) => {
+  let checks = 0;
+  const f = await fixture(t, undefined, async () => { checks++; return true; });
+  const [first, second, runtime] = await Promise.all([
+    f.service.status(), f.service.status(), f.service.configuration(),
+  ]);
+  assert.equal(first.mode, "github");
+  assert.equal(second.mode, "github");
+  assert.equal(runtime.byom, false);
+  assert.equal(runtime.client.baseDirectory, undefined, "Keep the original CLI credential location.");
+  assert.equal(checks, 1);
+  assert.deepEqual(JSON.parse(await readFile(f.file, "utf8")), { version: 1, mode: "github" });
+});
+
+test("users without an existing GitHub login still see the chooser", async (t) => {
+  let checks = 0;
+  const f = await fixture(t, undefined, async () => { checks++; return false; });
+  assert.equal((await f.service.status()).mode, null);
+  await assert.rejects(f.service.configuration(), /Choose an AI connection/);
+  assert.equal(checks, 1);
+  await assert.rejects(readFile(f.file), { code: "ENOENT" });
+});
+
+test("saved GitHub and BYOM choices are never reprobed or replaced on upgrade", async (t) => {
+  const f = await fixture(t, undefined, async () => { assert.fail("Existing choices must not query GitHub."); });
+  await f.store.select("github");
+  assert.equal((await f.service.status()).mode, "github");
+
+  const byom = await fixture(t, undefined, async () => { assert.fail("BYOM must not query GitHub."); });
+  await byom.store.saveByom(profile, key);
+  await byom.store.forget();
+  const status = await byom.service.status();
+  assert.equal(status.mode, "byom");
+  assert.equal(status.hasKey, false);
+  await assert.rejects(byom.service.configuration(), /Choose an AI connection/);
+});
+
+test("failed legacy-login checks leave setup available and surface only a safe warning", async (t) => {
+  const f = await fixture(t, undefined, async () => { throw new Error("private-auth-response"); });
+  const status = await f.service.status();
+  assert.equal(status.mode, null);
+  assert.match(status.warning!, /Choose GitHub authentication to retry/);
+  assert.equal(JSON.stringify(status).includes("private-auth-response"), false);
+  assert.equal((await f.service.saveByom("save", 1, profile, key)).ok, true);
+  assert.equal((await f.service.status()).warning, undefined);
+});
+
+test("an explicit BYOM choice waits for migration and then wins without a storage race", async (t) => {
+  let entered!: () => void;
+  let finish!: (authenticated: boolean) => void;
+  const started = new Promise<void>((resolve) => { entered = resolve; });
+  const f = await fixture(t, undefined, async () => {
+    entered();
+    return new Promise<boolean>((resolve) => { finish = resolve; });
+  });
+  const status = f.service.status();
+  await started;
+  const save = f.service.saveByom("save", 1, profile, key);
+  finish(true);
+  await status;
+  assert.equal((await save).ok, true);
+  assert.equal((await f.service.configuration()).byom, true);
+  assert.equal(JSON.parse(await readFile(f.file, "utf8")).mode, "byom");
+});
+
+test("explicit BYOM setup does not start a legacy-login check", async (t) => {
+  const f = await fixture(t, undefined, async () => { assert.fail("Explicit BYOM must not query GitHub."); });
+  assert.equal((await f.service.saveByom("save", 1, profile, key)).ok, true);
+  assert.equal((await f.service.status()).mode, "byom");
+});
+
+test("shutdown cancels migration without persisting a late authentication result", async (t) => {
+  let finish!: (authenticated: boolean) => void;
+  let entered!: () => void;
+  const started = new Promise<void>((resolve) => { entered = resolve; });
+  const f = await fixture(t, undefined, async () => {
+    entered();
+    return new Promise<boolean>((resolve) => { finish = resolve; });
+  });
+  const checking = f.service.status();
+  await started;
+  f.service.dispose();
+  finish(true);
+  assert.equal((await checking).mode, null);
+  await assert.rejects(readFile(f.file), { code: "ENOENT" });
+});
 
 test("BYOM maps every protocol and strips ambient GitHub authentication", (t) => {
   const previous = process.env.GH_TOKEN;

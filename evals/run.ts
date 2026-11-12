@@ -17,6 +17,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { githubRuntimeConfig } from "../electron/ai-provider";
 
 import type { Analysis } from "../common/analysis";
 import { TERMINAL_ARTIFACTS } from "../common/terminal";
@@ -125,7 +126,7 @@ async function main(): Promise<void> {
 
   const describer = new Describer((p) => {
     if (p.message) process.stderr.write(`   · [${p.sessionId}] ${p.message}\n`);
-  });
+  }, async () => githubRuntimeConfig());
 
   const results: ScenarioResult[] = [];
   for (const scenario of selected) {

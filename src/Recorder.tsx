@@ -736,7 +736,7 @@ export function Recorder() {
       {doctor && (
         <div className="doctor">
           <Row
-            label="GitHub Copilot"
+            label="Copilot runtime"
             status={doctor.copilotCli.ok ? "good" : "bad"}
             note={doctor.copilotCli.ok ? "found" : "missing"}
           />

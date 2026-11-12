@@ -111,4 +111,6 @@ jobs:
           if (typeof m.activeWindow !== 'function')
           throw new Error('get-windows activeWindow export is unavailable')"
       - run: npm test
+      - name: Verify BYOM runtime transport
+        run: npm run test:ai:runtime
       - run: npm run build

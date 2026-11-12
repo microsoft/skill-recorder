@@ -5,6 +5,7 @@ import { Library } from "./Library";
 import { Recorder } from "./Recorder";
 import { RecordingControls } from "./RecordingControls";
 import { Terminal } from "./Terminal";
+import { AiConnectionProvider } from "./AiProviderDialog";
 import "./App.css";
 
 const root = document.getElementById("root");
@@ -25,7 +26,7 @@ document.body.dataset.route = isLibrary
 createRoot(root).render(
   <React.StrictMode>
     {isLibrary ? (
-      <Library />
+      <AiConnectionProvider><Library /></AiConnectionProvider>
     ) : isRecordingControls ? (
       <RecordingControls />
     ) : isTerminal ? (

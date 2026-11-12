@@ -75,8 +75,14 @@ The source installers:
 9. Print a final confirmation listing the shortcuts that were created.
 
 No administrator access, global Node.js installation, or global Copilot CLI
-installation is required. GitHub Copilot authentication, entitlement, and
-network access are still required.
+installation is required. AI features require network access and either GitHub
+Copilot authentication/entitlement or a supported model provider's API key.
+Choose between them at the first AI action; recording needs neither.
+See [Bring your own model](README.md#bring-your-own-model) for endpoint/model
+requirements and secure-key storage on Windows, macOS, and Ubuntu. If a secure
+OS store is unavailable, the key form explains the automatic memory-only
+fallback; this does not block BYOM. Ubuntu needs an unlocked supported desktop
+keyring to remember keys between launches.
 
 Piping a downloaded script directly to a shell gives you no opportunity to
 inspect it first and may be disabled by enterprise policy. The inspect-first

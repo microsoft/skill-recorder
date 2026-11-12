@@ -21,6 +21,12 @@ const IPC = {
   doctor: "doctor:check",
   copilotSignIn: "copilot:sign-in",
   copilotSignInCancel: "copilot:sign-in-cancel",
+  aiConnectionStatus: "ai:status",
+  aiConnectionChanged: "ai:changed",
+  aiConnectionGitHub: "ai:github",
+  aiConnectionSave: "ai:save",
+  aiConnectionForget: "ai:forget",
+  aiConnectionCancel: "ai:cancel",
   statusChanged: "recorder:status-changed",
   recordingPrivacyReviewed: "recorder:privacy-reviewed",
   recordingPrivacyWarningRequested: "recorder:privacy-warning-requested",
@@ -127,6 +133,16 @@ contextBridge.exposeInMainWorld("skillRecorder", {
   doctor: () => ipcRenderer.invoke(IPC.doctor),
   copilotSignIn: (attemptId) => ipcRenderer.invoke(IPC.copilotSignIn, attemptId),
   cancelCopilotSignIn: (attemptId) => ipcRenderer.invoke(IPC.copilotSignInCancel, attemptId),
+  aiConnectionStatus: () => ipcRenderer.invoke(IPC.aiConnectionStatus),
+  aiConnectionGitHub: (attemptId) => ipcRenderer.invoke(IPC.aiConnectionGitHub, attemptId),
+  aiConnectionSave: (attemptId, profile, apiKey) => ipcRenderer.invoke(IPC.aiConnectionSave, attemptId, profile, apiKey),
+  aiConnectionForget: (attemptId) => ipcRenderer.invoke(IPC.aiConnectionForget, attemptId),
+  aiConnectionCancel: (attemptId) => ipcRenderer.invoke(IPC.aiConnectionCancel, attemptId),
+  onAiConnectionChanged: (cb) => {
+    const listener = (_event, status) => cb(status);
+    ipcRenderer.on(IPC.aiConnectionChanged, listener);
+    return () => ipcRenderer.removeListener(IPC.aiConnectionChanged, listener);
+  },
   onStatusChanged: (cb) => {
     const listener = (_event, status) => cb(status);
     ipcRenderer.on(IPC.statusChanged, listener);

@@ -19,6 +19,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { githubRuntimeConfig } from "../../electron/ai-provider";
 
 import { AutomationBuilder } from "../../electron/automationbuilder/builder";
 import type { AutomationPlan } from "../../common/automation";
@@ -81,7 +82,7 @@ async function main(): Promise<void> {
 
   const builder = new AutomationBuilder((p) => {
     if (p.message) process.stderr.write(`   · [${p.sessionId}] ${p.message}\n`);
-  });
+  }, async () => githubRuntimeConfig());
 
   const results: Result[] = [];
   for (const scenario of selected) {

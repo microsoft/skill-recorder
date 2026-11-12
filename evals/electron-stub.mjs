@@ -22,6 +22,12 @@ export const app = {
 };
 
 export const ipcMain = { handle: () => undefined, on: () => undefined, removeHandler: () => undefined };
+export const safeStorage = {
+  isEncryptionAvailable: () => false,
+  getSelectedStorageBackend: () => "unknown",
+  encryptString: notAvailable("safeStorage.encryptString"),
+  decryptString: notAvailable("safeStorage.decryptString"),
+};
 export const globalShortcut = { register: () => false, unregisterAll: () => undefined };
 export const clipboard = { readText: () => "", readImage: () => ({ isEmpty: () => true }), availableFormats: () => [] };
 export const screen = { getPrimaryDisplay: notAvailable("screen.getPrimaryDisplay"), getDisplayMatching: notAvailable("screen.getDisplayMatching") };

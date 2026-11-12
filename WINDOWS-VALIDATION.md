@@ -88,6 +88,30 @@ Before a release, run this checklist on a physical Windows 11 ARM64 machine:
    extraction should work; without it, the event-only analysis must still work
    and log one actionable compatibility warning.
 
+## AI connection and credential smoke checks
+
+Run these checks on Windows 11 x64 and ARM64, and repeat the storage/restart
+checks on macOS and Ubuntu before claiming native support is verified:
+
+1. With no AI preference saved, choose Analyze and confirm both BYOM and GitHub
+   are offered. Recording itself must not require either.
+2. Select GitHub and confirm the existing Microsoft-hinted SSO and standard
+   personal-account paths are unchanged.
+3. Configure a vision/tool-capable BYOM model without signing in to GitHub.
+   Check analysis and both builders. The synthetic connection test is billable.
+4. Restart and confirm a saved key is recovered using DPAPI on Windows, Keychain
+   on macOS, or a supported secure desktop keyring on Ubuntu.
+5. Test an unavailable/locked key store. Before key entry, the form must show the
+   memory-only disclaimer, without an extra dialog or blocking BYOM. After
+   restart the key is requested again, while endpoint/model settings remain.
+6. Forget the key and restart; it must not return. Check connection switching is
+   prevented during active work and resets idle model conversations.
+7. Check app/runtime logs, generated files, and debug exports for a test-only key
+   marker. No credential may be written unprotected or exported.
+
+Unit tests exercise secure and insecure backend behavior with injected stores;
+they do not substitute for these native OS checks or live provider validation.
+
 ## Known limitations
 
 - Browser URL capture still uses the existing Windows PowerShell UI Automation

@@ -10,11 +10,11 @@ import {
   type AnalysisFeedback,
   type AnalysisSubmission,
 } from "../../common/analysis";
-import { COPILOT_SIGNED_OUT_ERROR, type AnalyzeProgress } from "../../common/ipc";
+import { type AnalyzeProgress } from "../../common/ipc";
 import type { SessionMeta } from "../../common/types";
 import { FrameExtractor } from "../frames/extractor";
 import { createLogger } from "../logger";
-import { copilotConnectionOption, withStartupTimeout } from "../copilot-cli-path";
+import { aiConnection, connectAiClient, createAiSession, providerError, type AiRuntimeConfig } from "../ai-provider";
 import { sessionsRoot, sessionDir, isValidSessionId } from "../recorder/session-store";
 import { DESCRIBER_INSTRUCTIONS, IMPORTED_DESCRIBER_INSTRUCTIONS } from "./instructions";
 import { readImport } from "../imports/metadata";
@@ -91,10 +91,14 @@ export class Describer {
   private client: CopilotClient | null = null;
   private clientStart: Promise<CopilotClient> | null = null;
   private model: string | undefined;
+  private runtime: AiRuntimeConfig | undefined;
   private readonly live = new Map<string, LiveSession>();
   private readonly active = new Set<string>();
 
-  constructor(private readonly emitProgress: (p: AnalyzeProgress) => void) {}
+  constructor(
+    private readonly emitProgress: (p: AnalyzeProgress) => void,
+    private readonly connection: () => Promise<AiRuntimeConfig> = () => aiConnection.configuration(),
+  ) {}
 
   /** First pass: reconstruct the session from scratch. */
   async analyze(sessionId: string, redaction?: RedactionContext, signal?: AbortSignal): Promise<Analysis> {
@@ -194,9 +198,11 @@ export class Describer {
   /** Tear down the client + all live sessions (called on app quit). */
   async dispose(): Promise<void> {
     for (const [id] of this.live) await this.disposeLive(id);
-    if (this.client) await this.client.stop().catch(() => undefined);
+    if (this.client) await this.client.forceStop();
     this.client = null;
     this.clientStart = null;
+    this.model = undefined;
+    this.runtime = undefined;
   }
 
   // --- internals -----------------------------------------------------------
@@ -209,17 +215,10 @@ export class Describer {
     if (this.client) return this.client;
     if (this.clientStart) return this.clientStart;
     this.clientStart = (async () => {
-      const connOpts = copilotConnectionOption();
-      if (connOpts) log.info("CLI path resolved from node_modules");
-      const client = new CopilotClient(connOpts);
-      await withStartupTimeout(client.start(), "Copilot CLI (Describer)");
-      const auth = await client.getAuthStatus();
-      if (!auth.isAuthenticated) {
-        await client.stop().catch(() => undefined);
-        throw new Error(COPILOT_SIGNED_OUT_ERROR);
-      }
-      this.model = await this.pickVisionModel(client);
-      log.info("Copilot ready", auth.login ? `as ${auth.login}` : "", this.model ? `· model ${this.model}` : "");
+      this.runtime = await this.connection();
+      const client = await connectAiClient(this.runtime, "Copilot CLI (Describer)");
+      this.model = this.runtime.byom ? this.runtime.session.model : await this.pickVisionModel(client);
+      log.info("AI connection ready", this.runtime.byom ? "BYOM" : "GitHub");
       this.client = client;
       return client;
     })();
@@ -286,10 +285,10 @@ export class Describer {
     // cannot honor the allowlist we fail the analysis rather than silently
     // creating an unsandboxed session — which, combined with approveAll, would
     // auto-run the SDK's full default toolset in the user's environment.
-    const copilot = await client.createSession({
+    const copilot = await createAiSession(client, {
       ...config,
       availableTools: tools.map((t) => t.name),
-    });
+    }, this.runtime);
 
     const prior = loadPersistedAnalysis(sessionId);
     const live: LiveSession = {
@@ -342,7 +341,7 @@ export class Describer {
     } catch (err) {
       // Don't leave the agent running past our timeout/abort — reclaim the turn.
       await live.copilot.abort().catch(() => undefined);
-      throw new Error(`Analysis run failed: ${msg(err)}`);
+      throw this.runtime?.byom ? providerError(err) : new Error(`Analysis run failed: ${msg(err)}`);
     }
     if (!live.holder.submission) {
       this.emit(live.sessionId, "working", "Asking the agent to finalize its analysis…");

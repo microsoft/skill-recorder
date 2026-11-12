@@ -1,0 +1,123 @@
+import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import test, { type TestContext } from "node:test";
+import { CopilotClient } from "@github/copilot-sdk";
+import { AiConnectionError, parseByomConfig } from "../common/ai-provider";
+import { AiProviderStore } from "./ai-provider-store";
+import { AiConnectionService, byomRuntimeConfig, connectAiClient, createAiSession, providerError, type AiRuntimeConfig } from "./ai-provider";
+
+const profile = parseByomConfig({ provider: "openai", baseUrl: "https://api.openai.com/v1", model: "my-deployment", wireApi: "responses" });
+const key = "test-only-key";
+
+async function fixture(t: TestContext, probe?: (config: AiRuntimeConfig, signal: AbortSignal) => Promise<void>) {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "ai-runtime-test-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const store = new AiProviderStore(() => path.join(dir, "connection.json"), {
+    available: () => false,
+    encrypt: () => { throw new Error("unavailable"); },
+    decrypt: () => { throw new Error("unavailable"); },
+  });
+  const service = new AiConnectionService(store, () => path.join(dir, "runtime"), probe ?? (async () => {}));
+  return { store, service };
+}
+
+test("BYOM maps every protocol and strips ambient GitHub authentication", (t) => {
+  const previous = process.env.GH_TOKEN;
+  process.env.GH_TOKEN = "test-github-token";
+  t.after(() => {
+    if (previous === undefined) delete process.env.GH_TOKEN;
+    else process.env.GH_TOKEN = previous;
+  });
+  for (const provider of ["foundry", "azure", "openai", "anthropic", "custom"] as const) {
+    const config = byomRuntimeConfig({ ...profile, provider, apiVersion: "2024-10-21" }, key, "runtime");
+    assert.equal(config.client.useLoggedInUser, false);
+    assert.equal(config.client.mode, "empty");
+    assert.equal(config.client.env?.GH_TOKEN, undefined);
+    assert.equal(config.session.model, "my-deployment");
+    assert.equal(config.session.modelCapabilities?.supports?.vision, true);
+    assert.equal(config.session.provider?.apiKey, key);
+    assert.equal(config.session.provider?.type, provider === "azure" ? "azure" : provider === "anthropic" ? "anthropic" : "openai");
+    assert.equal(config.session.provider?.azure?.apiVersion, provider === "azure" ? "2024-10-21" : undefined);
+  }
+});
+
+test("BYOM startup does not query GitHub auth; session creation receives the explicit provider", async (t) => {
+  t.mock.method(CopilotClient.prototype, "start", async () => {});
+  const auth = t.mock.method(CopilotClient.prototype, "getAuthStatus", async () => { throw new Error("must not query GitHub"); });
+  t.mock.method(CopilotClient.prototype, "forceStop", async () => {});
+  const runtime = byomRuntimeConfig(profile, key, "runtime");
+  const client = await connectAiClient(runtime, "Test");
+  assert.equal(auth.mock.callCount(), 0);
+  const create = t.mock.method(client, "createSession", async () => { throw new Error(`401 ${key}`); });
+  await assert.rejects(createAiSession(client, { onPermissionRequest: async () => ({ kind: "approved" }) }, runtime), (error: unknown) => {
+    assert.ok(error instanceof AiConnectionError);
+    assert.equal(error.code, "authentication");
+    assert.equal(error.message.includes(key), false);
+    return true;
+  });
+  const args = create.mock.calls[0].arguments[0];
+  assert.ok(args);
+  assert.equal(args.model, profile.model);
+  assert.equal(args.provider?.apiKey, key);
+});
+
+test("unconfigured mode requires the chooser and failed probes preserve the old connection", async (t) => {
+  const f = await fixture(t, async () => { throw new Error(`429 ${key}`); });
+  await assert.rejects(f.service.configuration(), /Choose an AI connection/);
+  await f.store.select("github");
+  const result = await f.service.saveByom("test", 1, profile, key);
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.code, "quota");
+  assert.equal(JSON.stringify(result).includes(key), false);
+  assert.equal((await f.store.status()).mode, "github");
+});
+
+test("changing providers excludes active work and resets clients before committing", async (t) => {
+  const f = await fixture(t);
+  let release!: () => void;
+  const running = f.service.run(() => new Promise<void>((resolve) => { release = resolve; }));
+  assert.equal((await f.service.saveByom("test", 1, profile, key)).ok, false);
+  release();
+  await running;
+  let resets = 0;
+  f.service.bind(async () => { resets++; }, () => {});
+  assert.equal((await f.service.saveByom("test", 1, profile, key)).ok, true);
+  assert.equal(resets, 1);
+  assert.equal((await f.service.configuration()).byom, true);
+  assert.equal((await f.service.saveByom("test2", 1, { ...profile, baseUrl: "https://other.example/v1" }, undefined)).ok, false);
+  assert.equal((await f.service.forget("test3", 1)).ok, true);
+  assert.equal(resets, 2);
+  await assert.rejects(f.service.configuration(), /Choose an AI connection/);
+});
+
+test("cancellation belongs to its window and cannot commit a canceled connection", async (t) => {
+  let entered!: () => void;
+  const started = new Promise<void>((resolve) => { entered = resolve; });
+  const f = await fixture(t, async (_config, signal) => {
+    entered();
+    await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+  });
+  const saving = f.service.saveByom("test", 7, profile, key);
+  await started;
+  await assert.rejects(f.service.run(async () => {}), /Finish AI connection/);
+  f.service.cancel("test", 8);
+  assert.equal((await f.store.status()).mode, null);
+  f.service.cancel("test", 7);
+  const result = await saving;
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.code, "canceled");
+  assert.equal((await f.store.status()).hasKey, false);
+});
+
+test("provider failures are categorized without echoing response bodies", () => {
+  for (const [message, code] of [
+    ["401 secret", "authentication"], ["404 secret", "model"], ["429 secret", "quota"],
+    ["unsupported image secret", "capability"], ["network secret", "connection"],
+  ]) {
+    const error = providerError(new Error(message));
+    assert.equal(error.code, code);
+    assert.equal(error.message.includes("secret"), false);
+  }
+});

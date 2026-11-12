@@ -95,6 +95,9 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Verify BYOM runtime transport
+        run: npm run test:ai:runtime
+
       - name: Build
         run: npm run build
 

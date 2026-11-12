@@ -125,7 +125,7 @@ export function SensitiveReview({
           </div>
 
           <p className="sensitive-caveat">
-            This ran on your computer and hid these before anything was sent to GitHub Copilot. It
+            This ran on your computer and hid these before anything was sent to your AI provider. It
             covers secrets and personal details in the text that is sent (window titles, URLs,
             clipboard, terminal commands, notes, and voice) and in your screen images. It is on by
             default; you can turn it off in What&apos;s recorded.

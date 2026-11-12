@@ -19,6 +19,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { githubRuntimeConfig } from "../../electron/ai-provider";
 
 import { SkillBuilder } from "../../electron/skillbuilder/builder";
 import type { SkillPlan } from "../../common/skill";
@@ -76,7 +77,7 @@ async function main(): Promise<void> {
 
   const builder = new SkillBuilder((p) => {
     if (p.message) process.stderr.write(`   · [${p.sessionId}] ${p.message}\n`);
-  });
+  }, async () => githubRuntimeConfig());
 
   const results: Result[] = [];
   for (const scenario of selected) {

@@ -995,6 +995,29 @@ button:focus-visible,
   outline: none;
 }
 
+dialog.ai-connection-dialog {
+  margin: auto;
+  max-width: 500px;
+  color: var(--text);
+}
+dialog.ai-connection-dialog:not([open]) { display: none; }
+dialog.ai-connection-dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
+.ai-connection-dialog .sheet-head { justify-content: space-between; }
+.ai-choice { display: flex; flex-direction: column; gap: 6px; padding: 14px; text-align: left; }
+.ai-choice span { font-size: 12px; font-weight: normal; }
+.ai-provider-form, .ai-provider-form fieldset { display: flex; flex-direction: column; gap: 12px; }
+.ai-provider-form fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+.ai-provider-form label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; }
+.ai-provider-form input, .ai-provider-form select {
+  width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 6px;
+  color: var(--text); background: var(--surface);
+}
+.ai-provider-form details label { margin-top: 10px; }
+.ai-storage-notice { font-size: 11px; line-height: 1.5; color: var(--muted); }
+.ai-connection-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 12px; font-size: 11px; border-bottom: 1px solid var(--line); }
+.ai-connection-summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-connection-summary small { flex-basis: 100%; color: var(--muted); }
+
 .sheet-head {
   display: flex;
   align-items: center;

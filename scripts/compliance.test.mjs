@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -25,6 +27,7 @@ import {
   buildArtisticSourceSpecs,
   buildComplianceSourceSpecs,
   buildNativeSourceSpecs,
+  buildOnnxRemoteMaterialSpecs,
   buildStaticRemoteMaterialSpecs,
   buildTesseractNoticeSpecs,
   buildTesseractSourceSpecs,
@@ -38,6 +41,7 @@ import {
   legalTextSpecs,
   nativePayloadCandidates,
   onnxRefForVersion,
+  obtainCachedFile,
   releaseTargets,
   resolveReviewedCommit,
   reviewedSharpLibvipsLicenseEntry,
@@ -399,6 +403,122 @@ test("unreviewed ONNX versions fail closed", () => {
     () => onnxRefForVersion("1.24.4", policy),
     /has not been reviewed/,
   );
+});
+
+test("ONNX recovery keeps the reviewed source refs and uses explicit pinned alternatives", () => {
+  const packages = Object.entries(repoLock.packages)
+    .filter(([lockPath]) => /node_modules\/onnxruntime-[^/]+$/.test(lockPath))
+    .map(([lockPath, pkg]) => ({ name: lockPath.split("/").at(-1), version: pkg.version }));
+  const specs = buildOnnxRemoteMaterialSpecs(packages, repoPolicy);
+  assert.equal(specs.length, 6);
+  for (const spec of specs) {
+    const version = spec.id.slice("onnxruntime-".length).replace(/-(license|notices)$/, "");
+    assert.ok(spec.url.includes(`/${onnxRefForVersion(version, repoPolicy)}/`));
+    assert.equal(spec.fallbackUrls.length, 1);
+    assert.match(
+      spec.fallbackUrls[0],
+      /^https:\/\/cdn\.jsdelivr\.net\/gh\/microsoft\/onnxruntime@v\d+\.\d+\.\d+\/(LICENSE|ThirdPartyNotices\.txt)$/,
+    );
+    assert.match(repoPolicy.remoteMaterials[spec.id], /^[a-f0-9]{64}$/);
+  }
+  assert.throws(
+    () => buildOnnxRemoteMaterialSpecs([{ name: "onnxruntime-node", version: "unreviewed" }], repoPolicy),
+    /has not been reviewed/,
+  );
+});
+
+test("compliance downloads prefer upstream and reuse only a verified cache", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "skill-recorder-download-"));
+  const content = "Reviewed legal text.\n".repeat(10);
+  const spec = {
+    id: "reviewed-license",
+    fileName: "LICENSE.txt",
+    url: "https://upstream.example/LICENSE",
+    fallbackUrls: ["https://recovery.example/LICENSE"],
+    expectedSha256: createHash("sha256").update(content).digest("hex"),
+  };
+  const cache = path.join(root, spec.fileName);
+  const urls = [];
+  const fetchImpl = async (url) => {
+    urls.push(url);
+    return new Response(content);
+  };
+  try {
+    await obtainCachedFile(spec, cache, fetchImpl);
+    await obtainCachedFile(spec, cache, fetchImpl);
+    assert.deepEqual(urls, [spec.url]);
+    await writeFile(cache, "Corrupted cached content.\n".repeat(10));
+    await obtainCachedFile(spec, cache, fetchImpl);
+    assert.deepEqual(urls, [spec.url, spec.url]);
+    assert.equal(await readFile(cache, "utf8"), content);
+
+    await rm(cache);
+    await assert.rejects(
+      obtainCachedFile(spec, cache, async (url) => {
+        assert.equal(url, spec.url);
+        return new Response("Unreviewed upstream content.\n".repeat(10));
+      }),
+      /expected reviewed hash/,
+    );
+    assert.equal(existsSync(cache), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("upstream 404s recover only checksum-verified legal files", async (t) => {
+  const content = "Reviewed legal text.\n".repeat(10);
+  for (const scenario of ["verified", "wrong hash", "HTML", "unavailable"]) {
+    await t.test(scenario, async (t) => {
+      const root = await mkdtemp(path.join(tmpdir(), "skill-recorder-recovery-"));
+      const spec = {
+        id: "reviewed-license",
+        fileName: "LICENSE.txt",
+        url: "https://upstream.example/LICENSE",
+        fallbackUrls: ["https://recovery.example/LICENSE"],
+        expectedSha256: createHash("sha256").update(content).digest("hex"),
+      };
+      const cache = path.join(root, spec.fileName);
+      const urls = [];
+      const warnings = t.mock.method(console, "warn", () => {});
+      const fetchImpl = async (url) => {
+        urls.push(url);
+        if (url === spec.url || scenario === "unavailable") {
+          return new Response("Not found", { status: 404 });
+        }
+        return new Response(
+          scenario === "verified" ? content :
+            scenario === "HTML" ? `<html>${content}</html>` :
+              "Unreviewed recovery content.\n".repeat(10),
+        );
+      };
+      try {
+        if (scenario === "verified") {
+          await obtainCachedFile(spec, cache, fetchImpl);
+          assert.equal(await readFile(cache, "utf8"), content);
+          await obtainCachedFile(spec, cache, fetchImpl);
+        } else {
+          await assert.rejects(
+            obtainCachedFile(spec, cache, fetchImpl),
+            scenario === "wrong hash" ? /expected reviewed hash/ :
+              scenario === "HTML" ? /invalid file content/ : /after three attempts/,
+          );
+          assert.equal(existsSync(cache), false);
+        }
+        assert.deepEqual(urls.slice(0, 3), [spec.url, spec.url, spec.url]);
+        assert.deepEqual(
+          urls.slice(3),
+          Array(scenario === "unavailable" ? 3 : 1).fill(spec.fallbackUrls[0]),
+        );
+        assert.equal(warnings.mock.callCount(), 1);
+        assert.match(warnings.mock.calls[0].arguments[0], /HTTP 404/);
+        assert.match(warnings.mock.calls[0].arguments[0], /Trying recovery URL.*reviewed SHA-256/);
+        assert.equal(existsSync(`${cache}.partial`), false);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+  }
 });
 
 test("unreviewed GitHub Copilot CLI versions fail closed", () => {

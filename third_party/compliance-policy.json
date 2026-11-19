@@ -67,6 +67,26 @@
     "1.24.0-dev.20251116-b39e144322": "b39e144322",
     "1.26.0-dev.20260416-b7804b056c": "b7804b056c"
   },
+  "remoteMaterialFallbacks": {
+    "onnxruntime-1.24.0-dev.20251116-b39e144322-license": [
+      "https://cdn.jsdelivr.net/gh/microsoft/onnxruntime@v1.24.3/LICENSE"
+    ],
+    "onnxruntime-1.24.0-dev.20251116-b39e144322-notices": [
+      "https://cdn.jsdelivr.net/gh/microsoft/onnxruntime@v1.23.2/ThirdPartyNotices.txt"
+    ],
+    "onnxruntime-1.24.3-license": [
+      "https://cdn.jsdelivr.net/gh/microsoft/onnxruntime@v1.24.3/LICENSE"
+    ],
+    "onnxruntime-1.24.3-notices": [
+      "https://cdn.jsdelivr.net/gh/microsoft/onnxruntime@v1.24.3/ThirdPartyNotices.txt"
+    ],
+    "onnxruntime-1.26.0-dev.20260416-b7804b056c-license": [
+      "https://cdn.jsdelivr.net/gh/microsoft/onnxruntime@v1.24.3/LICENSE"
+    ],
+    "onnxruntime-1.26.0-dev.20260416-b7804b056c-notices": [
+      "https://cdn.jsdelivr.net/gh/microsoft/onnxruntime@v1.24.3/ThirdPartyNotices.txt"
+    ]
+  },
   "remoteMaterials": {
     "artistic-2.0": "bae466ac8d7100c304fe76632ccc627203a3897d3f7166f3cce00fb9df8c2074",
     "gpl-3.0": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",

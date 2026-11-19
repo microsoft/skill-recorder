@@ -1655,15 +1655,8 @@ function collectNativeComponents(packages, lock, { platform, arch }) {
   };
 }
 
-async function prepareRemoteMaterials({
-  outputDir,
-  rootDir,
-  packages,
-  policy,
-  fetchImpl,
-}) {
-  const specs = buildStaticRemoteMaterialSpecs(policy);
-
+export function buildOnnxRemoteMaterialSpecs(packages, policy) {
+  const specs = [];
   const onnxVersions = [
     ...new Set(
       packages
@@ -1694,6 +1687,23 @@ async function prepareRemoteMaterials({
     );
   }
 
+  return specs.map((spec) => ({
+    ...spec,
+    fallbackUrls: policy.remoteMaterialFallbacks?.[spec.id] ?? [],
+  }));
+}
+
+async function prepareRemoteMaterials({
+  outputDir,
+  rootDir,
+  packages,
+  policy,
+  fetchImpl,
+}) {
+  const specs = [
+    ...buildStaticRemoteMaterialSpecs(policy),
+    ...buildOnnxRemoteMaterialSpecs(packages, policy),
+  ];
   return mapLimit(specs, 4, async (spec) => {
     const target = path.join(outputDir, ...spec.outputPath.split("/"));
     await mkdir(path.dirname(target), { recursive: true });
@@ -1718,6 +1728,7 @@ async function prepareRemoteMaterials({
     return {
       id: spec.id,
       url: spec.url,
+      ...(spec.fallbackUrls?.length ? { fallbackUrls: spec.fallbackUrls } : {}),
       file: spec.outputPath,
       sha256: await sha256File(target),
     };
@@ -1941,7 +1952,7 @@ async function runGit(args, cwd) {
   }
 }
 
-async function obtainCachedFile(spec, cache, fetchImpl) {
+export async function obtainCachedFile(spec, cache, fetchImpl) {
   await mkdir(path.dirname(cache), { recursive: true });
   const cacheIsValid =
     existsSync(cache) &&
@@ -1950,7 +1961,20 @@ async function obtainCachedFile(spec, cache, fetchImpl) {
     (await sha256File(cache)) === spec.expectedSha256;
   if (!cacheIsValid) {
     await rm(cache, { force: true });
-    await downloadWithRetry(spec.url, cache, fetchImpl);
+    const urls = [spec.url, ...(spec.fallbackUrls ?? [])];
+    for (const [index, url] of urls.entries()) {
+      try {
+        await downloadWithRetry(url, cache, fetchImpl);
+        break;
+      } catch (error) {
+        if (index === urls.length - 1) throw error;
+        console.warn(
+          `Compliance material ${spec.id}: ${error.message} ` +
+            `${error.cause?.message ? `(${error.cause.message}) ` : ""}` +
+            `Trying recovery URL ${urls[index + 1]}; the reviewed SHA-256 is still required.`,
+        );
+      }
+    }
   }
   if (!(await hasExpectedFileHeader(spec.fileName, cache))) {
     await rm(cache, { force: true });
@@ -1995,6 +2019,7 @@ async function downloadWithRetry(url, target, fetchImpl) {
       }
     }
   }
+  await rm(temporary, { force: true });
   throw new Error(`Failed to download ${url} after three attempts.`, { cause: lastError });
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "skill-recorder",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "description": "Records a user's on-screen work session and derives a structured description for building AI-agent skills.",
   "author": "Skill Recorder contributors",
   "repository": "github:microsoft/skill-recorder",

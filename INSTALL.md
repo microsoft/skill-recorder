@@ -74,6 +74,12 @@ The source installers:
    Launchpad, and the Dock) on macOS; and a launcher plus desktop entry on Ubuntu.
 9. Print a final confirmation listing the shortcuts that were created.
 
+If GitHub's ONNX Runtime legal-file downloads are unavailable, license validation
+reports the failure and tries explicit version-pinned jsDelivr recovery URLs.
+Every recovered file must match its existing reviewed SHA-256; recovery never
+skips license validation or substitutes different legal text. The generated
+`REMOTE-MATERIALS.json` retains the original source URLs and lists recovery URLs.
+
 On Windows, installation **does not launch the app**, even on a first install.
 The terminal shows an `@`-bordered completion notice: finish recording, choose
 **Quit** in all running copies, wait for them to close, then open **Skill Recorder

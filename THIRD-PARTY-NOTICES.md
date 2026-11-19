@@ -105,6 +105,10 @@ Those components remain under their own terms; the generated
 packages omit standalone license and third-party-notice files, so exact notices
 from each pinned source revision are included under
 `resources/compliance/onnxruntime/`.
+If those upstream downloads are unavailable, version-pinned jsDelivr recovery
+copies are accepted only when byte-identical to the reviewed SHA-256 values.
+Some development revisions share their reviewed legal text with stable releases;
+recovery does not change the recorded source revision or approved hashes.
 
 ### Tesseract OCR WebAssembly — `tesseract.js` and `tesseract.js-core`
 

@@ -7,7 +7,7 @@ import { defineCatalogueProvider } from "../catalogue-provider";
  * portable capabilities (files, shell/CLIs, documented HTTP APIs) so it can load
  * into whatever agent the user chooses.
  */
-export const AGENT_SKILL_CATALOGUE_VERSION = "2026-08-06";
+export const AGENT_SKILL_CATALOGUE_VERSION = "2026-10-26";
 
 const AGENT_SKILL_CATALOGUE = `
 # Target: Any AI agent with skill support — generic skill catalogue (portable capabilities only)
@@ -20,18 +20,22 @@ Frontmatter fields:
 - \`name\` — kebab-case, \`^[a-z0-9-]+$\`.
 - \`description\` — one line of trigger keywords (when the agent should reach for this skill).
 - \`allowed-tools\` (optional) — a YAML list of tool patterns the skill may use, e.g.
-  \`Bash(gh *)\`, \`Read\`, \`Write\`, \`Grep\`, \`Glob\`. Omit it to allow the default set.
+  \`Bash(gh *)\`, \`Bash(agent-browser:*)\`, \`Read\`, \`Write\`, \`Grep\`, \`Glob\`. Omit it to allow the default set.
 
 The body is plain instructions written TO the agent (imperative voice): when to use the
 skill, the procedure to follow, and how to handle inputs and edge cases.
 
 ## Assume only portable capabilities
 
-- Do NOT assume host-specific integrations — no Teams / Outlook / Calendar / WorkIQ, and no
-  browser automation. Rely only on capabilities every agent can reasonably provide: reading
-  and writing files, running shell commands and standard CLIs, and calling documented HTTP APIs.
-- Map each recorded UI action to a portable tool, an API call, or a CLI — never write
-  "click" / "type" UI steps.
+- Do NOT assume host-specific integrations — no Teams / Outlook / Calendar / WorkIQ.
+  Rely on portable capabilities: reading and writing files, running shell commands and
+  standard CLIs, and calling documented HTTP APIs.
+- When browser interaction is strictly required for UI-only web applications (tasks without
+  a public API or CLI), use the portable **\`agent-browser\`** CLI via \`Bash(agent-browser:*)\`.
+  It provides fast accessibility-tree snapshots and element refs (\`@e1\`, \`@e2\`) across Chrome/Chromium:
+  \`agent-browser open <url>\`, \`agent-browser snapshot -i\`, \`agent-browser click @eN\`, \`agent-browser fill @eN "value"\`.
+- Map each recorded UI action to an API call, a CLI, or an \`agent-browser\` command — never write
+  unbound, host-dependent "click" / "type" UI steps.
 
 ## Writing the SKILL.md body
 

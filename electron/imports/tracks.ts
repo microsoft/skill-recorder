@@ -129,13 +129,19 @@ function webmTracks(data: Buffer): number[] {
         const channels = settings.find((field) => field.id === "9f");
         const rate = settings.find((field) => field.id === "b5");
         if (channels && channels.end - channels.start > 4) invalid();
-        const count = channels ? data.readUIntBE(channels.start, channels.end - channels.start) : 1;
+        const count = channels ? readUnsigned(data, channels) : 1;
         const sampleRate = !rate ? 8000 : rate.end - rate.start === 4 ? data.readFloatBE(rate.start)
           : rate.end - rate.start === 8 ? data.readDoubleBE(rate.start) : invalid();
         validateAudio(count, sampleRate);
       }
       return data[type.start];
     });
+}
+
+/** EBML unsigned integers may be zero bytes long, which means 0. */
+function readUnsigned(data: Buffer, element: Element): number {
+  const length = element.end - element.start;
+  return length === 0 ? 0 : data.readUIntBE(element.start, length);
 }
 
 function validateAudio(channels: number, sampleRate: number): void {

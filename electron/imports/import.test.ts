@@ -50,7 +50,7 @@ function element(id: string, ...content: Buffer[]): Buffer {
   return Buffer.concat([Buffer.from(id, "hex"), Buffer.from([body.length | 128]), body]);
 }
 
-function webm(audio = "A_OPUS"): Buffer {
+function webm(audio = "A_OPUS", channels = Buffer.from([2])): Buffer {
   const rate = Buffer.alloc(4);
   rate.writeFloatBE(48000);
   return Buffer.concat([
@@ -58,7 +58,7 @@ function webm(audio = "A_OPUS"): Buffer {
     element("18538067", element("1654ae6b",
       element("ae", element("83", Buffer.from([1])), element("86", Buffer.from("V_VP8"))),
       element("ae", element("83", Buffer.from([2])), element("86", Buffer.from(audio)),
-        element("e1", element("9f", Buffer.from([2])), element("b5", rate))))),
+        element("e1", element("9f", channels), element("b5", rate))))),
   ]);
 }
 
@@ -102,6 +102,10 @@ test("WebM track inspection validates codec identity and bounds", () => {
   for (const fixture of [Buffer.alloc(10), webm().subarray(0, 15), Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0])]) {
     assert.throws(() => inspectImportTracks(fixture, ".webm"));
   }
+});
+
+test("WebM zero-length Channels is rejected with the import error, not a RangeError", () => {
+  assert.throws(() => inspectImportTracks(webm("A_OPUS", Buffer.alloc(0)), ".webm"), /mono or stereo/);
 });
 
 async function invoke(tools: Tool[], name: string, args: unknown = {}): Promise<unknown> {

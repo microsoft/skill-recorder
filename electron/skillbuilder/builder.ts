@@ -235,8 +235,8 @@ export class SkillBuilder extends AgentBuilder<LiveBuild> {
       if (!prepared) throw new Error("There is no prepared skill to place.");
       const exportPath =
         destination.kind === "export"
-          ? this.exportSkillTo(prepared.skill, destination.dir, prepared.markdown)
-          : this.exportSkill(prepared.skill, prepared.markdown);
+          ? this.exportSkillTo(prepared.skill, destination.dir)
+          : this.exportSkill(prepared.skill);
       const finalSkill: BuiltSkill = { ...prepared.skill, exportedPath: exportPath, exportedAt: Date.now() };
       this.persist(sessionDir(sessionId), finalSkill);
       this.discardPreview(sessionId);
@@ -394,41 +394,23 @@ export class SkillBuilder extends AgentBuilder<LiveBuild> {
   }
 
   /** Write the SKILL.md into the target agent's live skills folder; returns its path. */
-  private exportSkill(skill: BuiltSkill, markdown: string): string {
+  private exportSkill(skill: BuiltSkill): string {
     const root = skillsRoot();
     const name = slugifySkillName(skill.name);
     const prior = loadPersistedSkill(skill.sessionId);
     const priorDir = prior?.exportedPath ? path.dirname(prior.exportedPath) : null;
-    // Re-install over the same folder only when it already lives under the install root;
-    // a prior *export* (download) folder must not be reused here. Otherwise pick a fresh,
-    // non-colliding directory so we never clobber an unrelated skill.
-    const reuse = priorDir !== null && isInside(root, priorDir);
-    let dir = reuse ? (priorDir as string) : path.join(root, name);
-    if (!reuse && existsSync(dir)) {
-      let n = 2;
-      while (existsSync(path.join(root, `${name}-${n}`))) n++;
-      dir = path.join(root, `${name}-${n}`);
-    }
-    mkdirSync(dir, { recursive: true });
-    const file = path.join(dir, "SKILL.md");
-    writeFileSync(file, markdown);
-    return file;
+    // Re-install over the same folder only when it already lives under the install root and
+    // was installed for this same skill name; a prior *export* (download) folder or a folder left
+    // from before a rename must not be reused. Otherwise pick a fresh, non-colliding
+    // directory so we never clobber an unrelated skill.
+    const reuse = priorDir !== null && isInside(root, priorDir) && slugifySkillName(prior?.name ?? "") === name;
+    return writeSkillFolder(skill, root, reuse ? (priorDir as string) : null);
   }
 
   /** Export (download) the SKILL.md into a user-picked folder as `<baseDir>/<name>/SKILL.md`;
    *  returns its path. Always picks a fresh, non-colliding subfolder within `baseDir`. */
-  private exportSkillTo(skill: BuiltSkill, baseDir: string, markdown: string): string {
-    const name = slugifySkillName(skill.name);
-    let dir = path.join(baseDir, name);
-    if (existsSync(dir)) {
-      let n = 2;
-      while (existsSync(path.join(baseDir, `${name}-${n}`))) n++;
-      dir = path.join(baseDir, `${name}-${n}`);
-    }
-    mkdirSync(dir, { recursive: true });
-    const file = path.join(dir, "SKILL.md");
-    writeFileSync(file, markdown);
-    return file;
+  private exportSkillTo(skill: BuiltSkill, baseDir: string): string {
+    return writeSkillFolder(skill, baseDir, null);
   }
 
   private persist(dir: string, skill: BuiltSkill): void {
@@ -438,6 +420,22 @@ export class SkillBuilder extends AgentBuilder<LiveBuild> {
       log.warn("failed to persist skill:", msg(err));
     }
   }
+}
+
+/** Write `<root>/<name>[-N]/SKILL.md` (or into `reuseDir`) with the frontmatter `name` set to
+ *  the final folder name, as the Agent Skills spec requires; returns the file path. */
+function writeSkillFolder(skill: BuiltSkill, root: string, reuseDir: string | null): string {
+  const name = slugifySkillName(skill.name);
+  let dir = reuseDir ?? path.join(root, name);
+  if (!reuseDir && existsSync(dir)) {
+    let n = 2;
+    while (existsSync(path.join(root, `${name}-${n}`))) n++;
+    dir = path.join(root, `${name}-${n}`);
+  }
+  mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, "SKILL.md");
+  writeFileSync(file, renderSkillMarkdown({ ...skill, name: path.basename(dir) }));
+  return file;
 }
 
 /** Render the final, user-edited plan into a compact spec the create turn builds from. */

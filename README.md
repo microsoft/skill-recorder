@@ -264,6 +264,10 @@ previews, and terminal commands), extracted screen images, narration text, and b
 terminal-output excerpts requested during analysis to your selected AI provider for processing.
 When protection is enabled, terminal commands and the complete local terminal transcript
 participate in the same on-device secret/PII scan before any requested excerpt is returned.
+The transcript scan uses bounded, overlapping multiline windows and carries terminal-control
+state across output chunks. Detected spans are masked even when an excerpt contains only part
+of a secret; text fields are masked before truncation and JSON escaping. This affects only
+protected analysis output, not the saved recording or the protection opt-out.
 
 The in-app "Records your screen and activity" panel spells out exactly what's collected:
 

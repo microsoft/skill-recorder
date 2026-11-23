@@ -335,7 +335,7 @@ export function registerIpc(
       return { redaction: { redactText: (t) => t, frameRedactor: INACTIVE_FRAME_REDACTOR } };
     }
     try {
-      const { report, values } = await scanSession(sessionId);
+      const { report, values, redactTerminalOutput } = await scanSession(sessionId);
       const redactText = buildRedactor(values);
       // Blur on-screen matches in frames too. If the OCR model is still provisioning
       // (typically a fresh first run) wait briefly for it rather than dropping frames;
@@ -343,7 +343,7 @@ export function registerIpc(
       // offline).
       await sensitiveModels.ensureReady();
       const frameRedactor = new OcrFrameRedactor({ ocr: sensitiveModels.getOcr(), knownValues: values });
-      return { redaction: { redactText, frameRedactor }, report };
+      return { redaction: { redactText, redactTerminalOutput, frameRedactor }, report };
     } catch (err) {
       log.warn("sensitive scan failed; proceeding without text redaction:", err instanceof Error ? err.message : err);
       // Protection is on but the scan threw: we have no values to mask text with, but we

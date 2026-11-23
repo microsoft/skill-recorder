@@ -12,6 +12,7 @@ import type { RecEvent } from "../../common/types";
 import { readEvents } from "../frames/correlate";
 import type { FrameExtractor } from "../frames/extractor";
 import type { FrameRedactor } from "../sensitive/frame-redact";
+import type { TerminalOutputRedactor } from "../terminal/text";
 import { createLogger } from "../logger";
 import {
   listTerminalCommands,
@@ -25,6 +26,8 @@ const log = createLogger("Describer/tools");
 export interface RedactionContext {
   /** Mask every detected raw value in an outgoing text string. */
   redactText: (text: string) => string;
+  /** Source-position masking for terminal values split across rows or excerpts. */
+  redactTerminalOutput?: TerminalOutputRedactor;
   /** Frame OCR + blur policy for get_frames, or null to serve frames unchanged. */
   frameRedactor: FrameRedactor | null;
 }
@@ -89,6 +92,10 @@ export function createDescriberTools(ctx: ToolContext): Tool[] {
   const progress = (m: string) => ctx.onProgress?.(m);
   // Mask detected sensitive values in every outgoing text field (null slot = no-op).
   const redact = (s: string): string => ctx.redaction.current?.redactText(s) ?? s;
+  const stringify = (value: unknown, space?: number): string =>
+    JSON.stringify(value, (_key, item: unknown) => typeof item === "string" ? redact(item) : item, space);
+  const redactAndTruncate = (value: unknown): unknown =>
+    truncate(typeof value === "string" ? redact(value) : value);
   const rel = (epoch: number) => Math.round(epoch - startedAt);
   const abs = (atMs: number) => startedAt + atMs;
   const sec = (atMs: number) => (atMs / 1000).toFixed(1);
@@ -107,12 +114,12 @@ export function createDescriberTools(ctx: ToolContext): Tool[] {
     handler: () => {
       progress("Reading the timeline…");
       if (ctx.imported) {
-        return redact(JSON.stringify({
+        return stringify({
           source: "imported-video", durationMs: ctx.imported.durationMs,
           width: ctx.imported.width, height: ctx.imported.height,
           hasAudio: ctx.imported.hasAudio, additionalDetails: ctx.imported.details,
           steps: [], note: "No OS events were captured. Inspect the video and transcript to reconstruct activities.",
-        }));
+        });
       }
       const bundle = readBundle(sessionDir);
       if (!bundle) {
@@ -138,7 +145,7 @@ export function createDescriberTools(ctx: ToolContext): Tool[] {
           summary: s.summary,
         })),
       };
-      return redact(JSON.stringify(view, null, 2));
+      return stringify(view, 2);
     },
   };
 
@@ -177,26 +184,23 @@ export function createDescriberTools(ctx: ToolContext): Tool[] {
         .filter(({ atMs }) => atMs >= from && atMs <= to)
         .map(({ e, atMs }) => {
           const payload: Record<string, unknown> = {};
-          for (const [k, v] of Object.entries(e.payload)) payload[k] = truncate(v);
+          for (const [k, v] of Object.entries(e.payload)) payload[k] = redactAndTruncate(v);
           return { seq: e.seq, atMs, type: e.type, source: e.source, ...payload };
         });
       // Bound the payload so a long, un-windowed session can't return thousands
       // of rows in one tool result. When truncated, tell the agent how to narrow.
       const rows = all.slice(0, MAX_EVENTS);
       const truncated = all.length > rows.length;
-      return redact(
-        JSON.stringify(
-          {
-            count: rows.length,
-            total: all.length,
-            ...(truncated
-              ? { truncated: true, note: `Showing the first ${MAX_EVENTS} of ${all.length} events. Narrow with fromMs/toMs or filter by types.` }
-              : {}),
-            events: rows,
-          },
-          null,
-          2,
-        ),
+      return stringify(
+        {
+          count: rows.length,
+          total: all.length,
+          ...(truncated
+            ? { truncated: true, note: `Showing the first ${MAX_EVENTS} of ${all.length} events. Narrow with fromMs/toMs or filter by types.` }
+            : {}),
+          events: rows,
+        },
+        2,
       );
     },
   };
@@ -239,19 +243,16 @@ export function createDescriberTools(ctx: ToolContext): Tool[] {
         )
         .map((command) => ({
           ...command,
-          command: truncate(command.command),
-          cwd: truncate(command.cwd),
+          command: redactAndTruncate(command.command),
+          cwd: redactAndTruncate(command.cwd),
         }));
-      return redact(
-        JSON.stringify(
-          {
-            count: commands.length,
-            nextCursor: page.nextCursor,
-            commands,
-          },
-          null,
-          2,
-        ),
+      return stringify(
+        {
+          count: commands.length,
+          nextCursor: page.nextCursor,
+          commands,
+        },
+        2,
       );
     },
   };
@@ -283,8 +284,8 @@ export function createDescriberTools(ctx: ToolContext): Tool[] {
       };
       progress("Searching recorded terminal output…");
       try {
-        const page = await searchTerminalOutput(sessionDir, args);
-        return redact(JSON.stringify(page, null, 2));
+        const page = await searchTerminalOutput(sessionDir, args, ctx.redaction.current?.redactTerminalOutput);
+        return stringify(page, 2);
       } catch (error) {
         return `Could not search terminal output: ${
           error instanceof Error ? error.message : String(error)

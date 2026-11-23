@@ -6,13 +6,13 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createInterface } from "node:readline";
-import { stripVTControlCharacters } from "node:util";
 import path from "node:path";
 
 import { NARRATION_FILE, type NarrationTranscript } from "../../common/narration";
 import { readSessionImport } from "../imports/metadata";
 import {
   maskValue,
+  redactText as redactMatches,
   redactedSnippet,
   resolveOverlaps,
   scanStructuredPii,
@@ -27,6 +27,7 @@ import { readEvents } from "../frames/correlate";
 import { createLogger } from "../logger";
 import { isValidSessionId, sessionDir } from "../recorder/session-store";
 import { scanSecrets } from "./secrets";
+import { TerminalTextDecoder, type TerminalOutputRedactor } from "../terminal/text";
 
 const log = createLogger("Sensitive");
 
@@ -41,6 +42,11 @@ interface ScanField {
   text: string;
   source: SensitiveSource;
   atMs: number | null;
+  terminal?: {
+    offset: number;
+    final: boolean;
+    rows: { start: number; end: number; atMs: number }[];
+  };
 }
 
 /** The outcome of a scan: a redacted report for the UI plus the raw matched values
@@ -49,6 +55,8 @@ export interface ScanResult {
   report: SensitiveReport;
   /** De-duplicated raw values detected across the session. */
   values: string[];
+  /** Masks detected spans even when a tool returns only part of a terminal value. */
+  redactTerminalOutput: TerminalOutputRedactor;
 }
 
 function str(v: unknown): string | undefined {
@@ -132,10 +140,11 @@ function collectFields(dir: string): ScanField[] {
   return fields;
 }
 
-/** Stream searchable terminal output without ever materializing an unbounded
- * transcript in memory. PTY chunks can split a token, so retain a small overlap
- * when a command emits a very long line. */
+/** Keep multiline context in bounded, overlapping windows rather than scanning
+ * physical lines. Normalized offsets also identify secret fragments in excerpts. */
 async function* terminalOutputFields(dir: string): AsyncGenerator<ScanField> {
+  const windowSize = 65_536;
+  const stride = windowSize / 2;
   const file = path.join(
     dir,
     TERMINAL_ARTIFACTS.directory,
@@ -148,7 +157,13 @@ async function* terminalOutputFields(dir: string): AsyncGenerator<ScanField> {
   });
   let first = true;
   let pending = "";
-  let pendingAtMs: number | null = null;
+  let offset = 0;
+  let rows: { start: number; end: number; atMs: number }[] = [];
+  const decoder = new TerminalTextDecoder();
+  const field = (text: string, final: boolean): ScanField => ({
+    text, source: "terminal-output", atMs: rows[0]?.atMs ?? null,
+    terminal: { offset, final, rows },
+  });
   for await (const line of lines) {
     if (first) {
       first = false;
@@ -168,35 +183,24 @@ async function* terminalOutputFields(dir: string): AsyncGenerator<ScanField> {
     ) {
       continue;
     }
-    if (pendingAtMs === null) pendingAtMs = Math.max(0, Math.round(row[0] * 1000));
-    pending += stripVTControlCharacters(row[2]).replaceAll("\u0000", "");
-    while (true) {
-      const newline = pending.indexOf("\n");
-      if (newline >= 0) {
-        const text = pending.slice(0, newline + 1);
-        pending = pending.slice(newline + 1);
-        if (text.trim()) {
-          yield { text, source: "terminal-output", atMs: pendingAtMs };
-        }
-        pendingAtMs = Math.max(0, Math.round(row[0] * 1000));
-        continue;
-      }
-      if (pending.length > 16_384) {
-        yield {
-          text: pending.slice(0, 16_384),
-          source: "terminal-output",
-          atMs: pendingAtMs,
-        };
-        pending = pending.slice(12_288);
-        pendingAtMs = Math.max(0, Math.round(row[0] * 1000));
-        continue;
-      }
-      break;
+    const text = decoder.push(row[2]);
+    if (!text) continue;
+    rows.push({
+      start: offset + pending.length,
+      end: offset + pending.length + text.length,
+      atMs: Math.max(0, Math.round(row[0] * 1000)),
+    });
+    pending += text;
+    while (pending.length > windowSize) {
+      yield field(pending.slice(0, windowSize), false);
+      pending = pending.slice(stride);
+      offset += stride;
+      rows = rows.filter((item) => item.end > offset);
     }
   }
   lines.close();
   if (pending.trim()) {
-    yield { text: pending, source: "terminal-output", atMs: pendingAtMs };
+    yield field(pending, true);
   }
 }
 
@@ -233,6 +237,8 @@ export async function scanSession(sessionId: string): Promise<ScanResult> {
   const dir = sessionDir(sessionId); // throws on an unsafe id (traversal guard)
   const byKey = new Map<string, SensitiveFinding>();
   const values = new Set<string>();
+  const terminalMatches: SensitiveMatch[] = [];
+  const terminalSeen = new Set<string>();
   // Payload fields repeat verbatim across events (app name, cwd, host, url), so
   // cache detector results by exact text to avoid re-scanning identical strings.
   const scanCache = new Map<string, SensitiveMatch[]>();
@@ -249,14 +255,28 @@ export async function scanSession(sessionId: string): Promise<ScanResult> {
       scanCache.set(field.text, matches);
     }
     for (const match of matches) {
+      let atMs = field.atMs;
+      if (field.terminal) {
+        const { offset, final, rows } = field.terminal;
+        // A window edge is not a token boundary. The overlapping window supplies
+        // the missing context; do not retain a truncated match or count it twice.
+        if ((offset > 0 && match.start === 0) || (!final && match.end === field.text.length)) continue;
+        const start = offset + match.start;
+        const end = offset + match.end;
+        const identity = `${start}:${end}`;
+        if (terminalSeen.has(identity)) continue;
+        terminalSeen.add(identity);
+        terminalMatches.push({ ...match, start, end });
+        atMs = rows.find((row) => row.start <= start && row.end > start)?.atMs ?? atMs;
+      }
       if (match.value.length >= MIN_REDACT_LEN) values.add(match.value);
       const key = findingKey(field.source, match);
       const existing = byKey.get(key);
       if (existing) {
         existing.occurrences += 1;
         // Keep the earliest known time so the finding points at first exposure.
-        if (field.atMs != null && (existing.atMs == null || field.atMs < existing.atMs)) {
-          existing.atMs = field.atMs;
+        if (atMs != null && (existing.atMs == null || atMs < existing.atMs)) {
+          existing.atMs = atMs;
         }
         continue;
       }
@@ -267,7 +287,7 @@ export async function scanSession(sessionId: string): Promise<ScanResult> {
         source: field.source,
         redactedValue: maskValue(match.value),
         snippet: redactedSnippet(field.text, match, matches),
-        atMs: field.atMs,
+        atMs,
         occurrences: 1,
       });
     }
@@ -296,7 +316,27 @@ export async function scanSession(sessionId: string): Promise<ScanResult> {
     counts,
     findings,
   };
-  return { report, values: [...values] };
+  const spans = resolveOverlaps(terminalMatches);
+  const redactTerminalOutput: TerminalOutputRedactor = (text, offset) => {
+    let lo = 0;
+    let hi = spans.length;
+    while (lo < hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      if (spans[mid].end <= offset) lo = mid + 1;
+      else hi = mid;
+    }
+    const local: SensitiveMatch[] = [];
+    for (let index = lo; index < spans.length && spans[index].start < offset + text.length; index++) {
+      const match = spans[index];
+      local.push({
+        ...match,
+        start: Math.max(0, match.start - offset),
+        end: Math.min(text.length, match.end - offset),
+      });
+    }
+    return redactMatches(text, local);
+  };
+  return { report, values: [...values], redactTerminalOutput };
 }
 
 /**

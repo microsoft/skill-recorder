@@ -136,9 +136,10 @@ async function main(): Promise<void> {
     try {
       const dir = materialize(root, scenario);
       await processSession(dir);
-      const { values } = await scanSession(scenario.id);
+      const { values, redactTerminalOutput } = await scanSession(scenario.id);
       const analysis: Analysis = await describer.analyze(scenario.id, {
         redactText: buildRedactor(values),
+        redactTerminalOutput,
         frameRedactor: null,
       });
       res.stepCount = analysis.steps.length;

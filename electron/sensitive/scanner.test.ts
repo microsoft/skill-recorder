@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
 import type { SensitiveReport } from "../../common/sensitive";
+import { createDescriberTools, type ToolContext } from "../describer/tools";
 import { buildRedactor, loadSensitiveReport, saveSensitiveReport, scanSession } from "./scanner";
 
 const STARTED_AT = 10_000;
@@ -14,6 +15,44 @@ const GH_TOKEN = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"; // 36 body cha
 const CARD = "4111 1111 1111 1111"; // Luhn-valid Visa test number
 const EMAIL = "dev@internal.example.com";
 const PERSON = "Ada Lovelace";
+const PRIVATE_KEY = [
+  "-----BEGIN RSA PRIVATE KEY-----",
+  "MIIEowIBAAKCAQEAsyntheticNonSecretKeyMaterialForRegressionTestingOnly",
+  "VGhpcyBpcyBub3QgYSByZWFsIHByaXZhdGUga2V5",
+  "-----END RSA PRIVATE KEY-----",
+].join("\n");
+
+async function invoke(ctx: ToolContext, name: string, args: Record<string, unknown> = {}) {
+  const tool = createDescriberTools(ctx).find((candidate) => candidate.name === name);
+  assert.ok(tool?.handler);
+  return String(await tool.handler(args, {
+    sessionId: "test", toolCallId: "test", toolName: name, arguments: args,
+  }));
+}
+
+async function terminalFixture(root: string, chunks: string[]) {
+  const id = "redaction-regression";
+  const dir = path.join(root, id);
+  await mkdir(path.join(dir, "terminal"), { recursive: true });
+  await writeFile(path.join(dir, "session.json"), JSON.stringify({ id, startedAt: STARTED_AT }));
+  await writeFile(path.join(dir, "events.jsonl"), "");
+  const cast = [
+    JSON.stringify({ version: 2, width: 80, height: 24 }),
+    ...chunks.map((chunk, index) => JSON.stringify([index + 1, "o", chunk])),
+  ].join("\n") + "\n";
+  await writeFile(path.join(dir, "terminal", "output.cast"), cast);
+  const scan = await scanSession(id);
+  const context: ToolContext = {
+    sessionDir: dir, startedAt: STARTED_AT, extractor: null,
+    redaction: { current: {
+      redactText: buildRedactor(scan.values),
+      redactTerminalOutput: scan.redactTerminalOutput,
+      frameRedactor: null,
+    } },
+    onSubmit: () => undefined,
+  };
+  return { ...scan, context, cast };
+}
 
 function event(seq: number, offsetMs: number, type: string, payload: Record<string, unknown>) {
   return JSON.stringify({
@@ -146,6 +185,193 @@ test("scanSession streams and scans terminal output split across PTY chunks", as
     const finding = report.findings.find((item) => item.label === "GitHub token");
     assert.equal(finding?.source, "terminal-output");
     assert.equal(JSON.stringify(report).includes(GH_TOKEN), false);
+  });
+});
+
+test("terminal secrets are masked across rows, pages and time windows without losing surrounding output", async () => {
+  await withSessionRoot(async (root) => {
+    const first = GH_TOKEN.slice(0, 20);
+    const second = GH_TOKEN.slice(20);
+    const { context, values, cast, report } = await terminalFixture(root, [
+      `before ${first}`, `${second} after\r\n`, "ordinary diagnostic output\r\n",
+    ]);
+    assert.ok(values.includes(GH_TOKEN));
+    assert.equal(report.findings.find((finding) => finding.label === "GitHub token")?.atMs, 1000);
+    const page = JSON.parse(await invoke(context, "search_terminal_output", { fromMs: 0, limit: 1 }));
+    assert.equal(page.nextCursor, 1);
+    assert.equal(page.hits[0].cursor, 0);
+    assert.equal(page.hits[0].atMs, 1000);
+    assert.ok(page.hits[0].text.startsWith("before "));
+    assert.ok(!page.hits[0].text.includes(first));
+    const next = JSON.parse(await invoke(context, "search_terminal_output", { fromMs: 0, cursor: page.nextCursor }));
+    assert.ok(!next.hits[0].text.includes(second));
+    assert.ok(next.hits[0].text.endsWith(" after\r\n"));
+    assert.equal(next.hits[1].text, "ordinary diagnostic output\r\n");
+    const window = JSON.parse(await invoke(context, "search_terminal_output", { fromMs: 2000, toMs: 2000 }));
+    assert.equal(window.hits.length, 1);
+    assert.ok(!window.hits[0].text.includes(second));
+    const query = JSON.parse(await invoke(context, "search_terminal_output", { query: first }));
+    assert.equal(query.hits.length, 1, "search still matches the original text");
+    assert.ok(!query.hits[0].text.includes(first));
+    assert.equal(await readFile(path.join(context.sessionDir, "terminal", "output.cast"), "utf8"), cast);
+    context.redaction.current = null;
+    const raw = JSON.parse(await invoke(context, "search_terminal_output", { fromMs: 0 }));
+    assert.equal(raw.hits[0].text, `before ${first}`);
+    assert.equal(raw.hits[1].text, `${second} after\r\n`);
+  });
+});
+
+test("private keys printed across lines are detected and their body is masked in terminal excerpts", async () => {
+  await withSessionRoot(async (root) => {
+    const { context, report, values } = await terminalFixture(root, [
+      "before\r\n", ...PRIVATE_KEY.split("\n").map((line) => `${line}\r\n`), "after\r\n",
+    ]);
+    assert.ok(report.findings.some((finding) => finding.category === "private-key"));
+    assert.ok(values.some((value) => value.includes(PRIVATE_KEY.split("\n")[1])));
+    const page = JSON.parse(await invoke(context, "search_terminal_output", { fromMs: 0 }));
+    assert.equal(page.hits[0].text, "before\r\n");
+    assert.equal(page.hits.at(-1).text, "after\r\n");
+    for (const body of PRIVATE_KEY.split("\n").slice(1, -1)) {
+      assert.ok(!page.hits.some((hit: { text: string }) => hit.text.includes(body)));
+    }
+  });
+});
+
+test("ANSI controls split at any character do not hide tokens from detection or masking", async () => {
+  await withSessionRoot(async (root) => {
+    for (const control of ["\u001b[32m", "\u001b]0;window title\u0007", "\u001b]0;title\u001b\\", "\u009b32m"]) {
+      for (let split = 1; split < control.length; split++) {
+        const { context, values } = await terminalFixture(root, [
+          control.slice(0, split), `${control.slice(split)}${GH_TOKEN}\u001b[0m\r\n`,
+        ]);
+        assert.ok(values.includes(GH_TOKEN), `missed control split at ${split}`);
+        const result = await invoke(context, "search_terminal_output", { fromMs: 0 });
+        assert.ok(!result.includes(GH_TOKEN));
+      }
+    }
+  });
+});
+
+test("JSON tools mask raw values before escaping or truncating and leave ordinary fields unchanged", async () => {
+  await withSessionRoot(async (root) => {
+    const id = "json-redaction";
+    const dir = path.join(root, id);
+    await mkdir(path.join(dir, "terminal"), { recursive: true });
+    const values = [PRIVATE_KEY, 'secret"with\\escapes', `long-${"K".repeat(2200)}-secret`];
+    const note = `before\n${values.join("\n")}\nafter`;
+    await writeFile(path.join(dir, "events.jsonl"), event(1, 1000, "marker", { note, app: "Terminal" }) + "\n");
+    await writeFile(path.join(dir, "terminal", "commands.jsonl"), JSON.stringify({
+      id: "cmd-1", command: note, cwd: "C:\\work", startAtMs: 1000, endAtMs: 2000,
+    }) + "\n");
+    await writeFile(path.join(dir, "bundle.json"), JSON.stringify({
+      session: { durationMs: 2000, platform: "win32" }, stats: { stepCount: 1 },
+      steps: [{
+        index: 0, startMs: STARTED_AT, durationMs: 2000, boundary: "start", app: "Terminal",
+        titles: [note], hosts: [], urls: [], commands: [note], clipboardCount: 0,
+        markers: [note], frames: [], summary: note,
+      }],
+    }));
+    const context: ToolContext = {
+      sessionDir: dir, startedAt: STARTED_AT, extractor: null,
+      redaction: { current: { redactText: buildRedactor(values), frameRedactor: null } },
+      onSubmit: () => undefined,
+    };
+    const expected = buildRedactor(values)(note);
+    const events = JSON.parse(await invoke(context, "get_events"));
+    assert.equal(events.events[0].note, expected);
+    assert.equal(events.events[0].app, "Terminal");
+    const commands = JSON.parse(await invoke(context, "list_terminal_commands"));
+    assert.equal(commands.commands[0].command, expected);
+    assert.equal(commands.commands[0].cwd, "C:\\work");
+    const timeline = JSON.parse(await invoke(context, "get_timeline"));
+    assert.equal(timeline.steps[0].commands[0], expected);
+    assert.equal(timeline.steps[0].markers[0], expected);
+    assert.equal(timeline.steps[0].titles[0], expected);
+    assert.equal(timeline.steps[0].summary, expected);
+    context.imported = {
+      version: 1, file: "import.mp4", name: "Demo", importedAt: STARTED_AT,
+      bytes: 100, durationMs: 2000, width: 640, height: 360, hasAudio: false, details: note, language: "en",
+    };
+    const imported = JSON.parse(await invoke(context, "get_timeline"));
+    assert.equal(imported.additionalDetails, expected);
+    context.redaction.current = null;
+    const unprotected = JSON.parse(await invoke(context, "get_timeline"));
+    assert.equal(unprotected.additionalDetails, note);
+    });
+});
+
+test("one-character terminal fragments and ANSI embedded in tokens cannot reconstruct a detected value", async () => {
+  await withSessionRoot(async (root) => {
+    for (const chunks of [
+      [...GH_TOKEN],
+      [GH_TOKEN.slice(0, 20) + "\u001b[3", "2m" + GH_TOKEN.slice(20)],
+    ]) {
+      const { context, values } = await terminalFixture(root, chunks);
+      assert.ok(values.includes(GH_TOKEN));
+      const { hits } = JSON.parse(await invoke(context, "search_terminal_output", { fromMs: 0, limit: 50 }));
+      const reconstructed = hits.map((hit: { text: string }) => hit.text).join("");
+      assert.ok(!reconstructed.includes(GH_TOKEN));
+      assert.match(reconstructed, /••••/);
+    }
+  });
+});
+
+test("multiline window boundaries retain secrets without duplicating findings", async () => {
+  await withSessionRoot(async (root) => {
+    for (const value of [GH_TOKEN, PRIVATE_KEY]) {
+      const padding = "log\n".repeat(16_380);
+      const { context, values, report } = await terminalFixture(root, [
+        padding + value.slice(0, 40), value.slice(40) + "\n", "done\n",
+      ]);
+      assert.ok(values.includes(value));
+      const finding = report.findings.find((item) =>
+        item.label === (value === GH_TOKEN ? "GitHub token" : "Private key"));
+      assert.equal(finding?.occurrences, 1);
+      assert.equal(finding?.atMs, 1000);
+      const page = JSON.parse(await invoke(context, "search_terminal_output", { fromMs: 2000 }));
+      assert.ok(!page.hits.some((hit: { text: string }) => hit.text.includes(value.slice(40).trim()) && value.length > 40));
+      assert.equal(page.hits.at(-1).text, "done\n");
+    }
+  });
+});
+
+test("excerpts starting or ending inside a private key mask only the intersecting span", async () => {
+  await withSessionRoot(async (root) => {
+    const body = "MIIE" + "QUJD".repeat(1500);
+    const value = `-----BEGIN RSA PRIVATE KEY-----\n${body}\n-----END RSA PRIVATE KEY-----`;
+    const { context, values } = await terminalFixture(root, [`before\n${value}\nafter`]);
+    assert.ok(values.includes(value));
+    const start = JSON.parse(await invoke(context, "search_terminal_output", { fromMs: 0 }));
+    assert.ok(start.hits[0].text.startsWith("before\n"));
+    assert.ok(!start.hits[0].text.includes("QUJD"));
+    assert.ok(start.hits[0].text.length <= 2000);
+    const end = JSON.parse(await invoke(context, "search_terminal_output", { query: "after" }));
+    assert.ok(end.hits[0].text.endsWith("\nafter"));
+    assert.ok(!end.hits[0].text.includes("QUJD"));
+  });
+});
+
+test("protected benign terminal output retains command filtering, cursors, timing and result shape", async () => {
+  await withSessionRoot(async (root) => {
+    const { context, report } = await terminalFixture(root, [
+      "\u001b[32mbuild started\u001b[0m\r\n", "a".repeat(2500), "build finished\r\n",
+    ]);
+    assert.equal(report.totalFindings, 0);
+    await writeFile(path.join(context.sessionDir, "terminal", "commands.jsonl"), JSON.stringify({
+      id: "cmd-1", command: "build", cwd: "C:\\work", startAtMs: 1000, endAtMs: 3000,
+    }) + "\n");
+    const protection = context.redaction.current;
+    for (const args of [
+      { commandId: "cmd-1", limit: 1 },
+      { fromMs: 0, cursor: 1 },
+      { query: "finished", commandId: "cmd-1" },
+      { fromMs: 2000, toMs: 2000 },
+    ]) {
+      context.redaction.current = protection;
+      const protectedOutput = await invoke(context, "search_terminal_output", args);
+      context.redaction.current = null;
+      assert.equal(await invoke(context, "search_terminal_output", args), protectedOutput);
+    }
   });
 });
 

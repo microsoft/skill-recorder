@@ -7,6 +7,7 @@ import {
   TERMINAL_ARTIFACTS,
   type TerminalCommandIndex,
 } from "../../common/terminal";
+import { TerminalTextDecoder, type TerminalOutputRedactor } from "./text";
 
 export interface TerminalCommandPage {
   commands: TerminalCommandIndex[];
@@ -103,20 +104,20 @@ async function commandRange(
   }
 }
 
-function excerpt(text: string, query?: string): string {
-  const clean = stripVTControlCharacters(text).replaceAll("\u0000", "");
-  if (!query) return clean.slice(0, 2000);
-  const lower = clean.toLocaleLowerCase();
+function excerptRange(text: string, query?: string): [number, number] | null {
+  if (!query) return [0, Math.min(text.length, 2000)];
+  const lower = text.toLocaleLowerCase();
   const at = lower.indexOf(query.toLocaleLowerCase());
-  if (at < 0) return "";
+  if (at < 0) return null;
   const start = Math.max(0, at - 500);
-  return clean.slice(start, Math.min(clean.length, at + query.length + 1000));
+  return [start, Math.min(text.length, at + query.length + 1000)];
 }
 
 /** Streams the asciicast transcript and returns only bounded matching excerpts. */
 export async function searchTerminalOutput(
   sessionDir: string,
   input: TerminalOutputQuery,
+  redactOutput?: TerminalOutputRedactor,
 ): Promise<TerminalOutputPage> {
   if (
     !input.query?.trim() &&
@@ -150,6 +151,8 @@ export async function searchTerminalOutput(
   let commandsPage = await listTerminalCommands(sessionDir, 0, 200);
   let commands = commandsPage.commands;
   let commandIndex = 0;
+  const decoder = new TerminalTextDecoder();
+  let outputOffset = 0;
 
   const lines = createInterface({
     input: createReadStream(file, { encoding: "utf8" }),
@@ -176,6 +179,11 @@ export async function searchTerminalOutput(
       continue;
     }
     const atMs = Math.max(0, Math.round(row[0] * 1000));
+    const clean = redactOutput
+      ? decoder.push(row[2])
+      : stripVTControlCharacters(row[2]).replaceAll("\u0000", "");
+    const rowOffset = outputOffset;
+    outputOffset += clean.length;
     while (commands[commandIndex] && atMs > commands[commandIndex].endAtMs) {
       commandIndex++;
       if (commandIndex >= commands.length && commandsPage.nextCursor !== null) {
@@ -191,8 +199,12 @@ export async function searchTerminalOutput(
         ? command.id
         : null;
     if (atMs < fromMs || atMs > toMs) continue;
-    const text = excerpt(row[2], input.query?.trim());
-    if (!text) continue;
+    const excerpt = excerptRange(clean, input.query?.trim());
+    if (!excerpt || excerpt[0] === excerpt[1]) continue;
+    const [start, end] = excerpt;
+    const raw = clean.slice(start, end);
+    const text = (redactOutput ? redactOutput(raw, rowOffset + start) : raw)
+      .slice(0, input.query?.trim() ? input.query.trim().length + 1500 : 2000);
     const cursor = outputCursor++;
     if (cursor < startCursor) continue;
     if (hits.length < limit) {
